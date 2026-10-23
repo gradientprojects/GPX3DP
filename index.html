@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GPX3DP — GPX rides to 3D-printable terrain</title>
+    <meta name="description" content="Turn GPX rides into 3D-printable terrain with the route in its own color. Runs entirely in your browser." />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M2 26 11 12l6 8 4-5 9 11z' fill='%23577a4a'/%3E%3Cpath d='M4 24c5-3 8-9 13-7s6 6 11 3' stroke='%23d23a2a' stroke-width='2.5' fill='none'/%3E%3C/svg%3E" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="brand"><b>GPX3DP</b><span>GPX rides to 3D-printable terrain</span></div>
+      <div class="top-right">
+        <span class="privacy" title="GPX files are read by your browser and never uploaded. Only public map and elevation tiles are downloaded.">Your GPX never leaves this browser</span>
+        <a href="https://github.com/gradientprojects/GPX3DP" target="_blank" rel="noopener">Source</a>
+      </div>
+    </header>
+
+    <main>
+      <aside id="panel">
+        <div class="panel-scroll">
+        <section class="card">
+          <h2>1 · Rides</h2>
+          <label id="drop" class="drop">
+            <input id="file" type="file" accept=".gpx,application/gpx+xml" multiple hidden />
+            <b>Drop GPX files here</b> or click to choose. Several files are chained into one ride.
+          </label>
+          <ol id="legs" class="legs"></ol>
+          <div id="ride-stats" class="muted small"></div>
+        </section>
+
+        <section class="card">
+          <h2>2 · Printer &amp; size</h2>
+          <label class="row">Printer <select data-k="printer" id="printer"></select></label>
+          <div class="row" id="custom-plate">
+            Plate <input type="number" data-k="plateX" min="50" max="1000" step="1" /> ×
+            <input type="number" data-k="plateY" min="50" max="1000" step="1" /> mm
+          </div>
+          <div class="row seg">
+            <label><input type="radio" name="mc" value="multi" /> Multi-color (AMS etc.)</label>
+            <label><input type="radio" name="mc" value="single" /> Single color</label>
+          </div>
+          <label class="row">Slicer
+            <select data-k="slicer">
+              <option value="bambu">Bambu Studio / OrcaSlicer</option>
+              <option value="prusa">PrusaSlicer</option>
+            </select>
+          </label>
+          <div class="row">
+            <select data-k="edge"><option value="width">Width</option><option value="height">Height</option></select>
+            <input type="number" data-k="edgeMm" min="20" step="1" /> mm
+            <button id="fit" type="button" class="ghost">Fit to plate</button>
+          </div>
+          <label class="row">Detail
+            <select data-k="cellMm">
+              <option value="0.2">Fine (0.2 mm)</option>
+              <option value="0.25">Normal (0.25 mm)</option>
+              <option value="0.33">Coarse (0.33 mm)</option>
+              <option value="0.5">Draft (0.5 mm)</option>
+            </select>
+          </label>
+          <label class="row">Nozzle
+            <select data-k="nozzleMm">
+              <option value="0.2">0.2 mm</option>
+              <option value="0.4">0.4 mm</option>
+              <option value="0.6">0.6 mm</option>
+              <option value="0.8">0.8 mm</option>
+            </select>
+          </label>
+          <label class="row">Layer height
+            <select data-k="layerHeightMm">
+              <option value="0.08">0.08 mm</option>
+              <option value="0.12">0.12 mm</option>
+              <option value="0.16">0.16 mm</option>
+              <option value="0.2">0.2 mm</option>
+              <option value="0.24">0.24 mm</option>
+              <option value="0.28">0.28 mm</option>
+            </select>
+          </label>
+          <p class="muted small" id="layer-readout"></p>
+          <label class="row">Units
+            <select data-k="units"><option value="km">km</option><option value="mi">mi</option></select>
+          </label>
+          <div id="size-readout" class="readout"></div>
+        </section>
+
+        <section class="card">
+          <h2>3 · Crop</h2>
+          <p class="muted small">Drag the corners or the middle of the box on the map.</p>
+          <div class="row">
+            Margin <input type="number" data-k="marginPct" min="0" max="100" step="1" /> %
+            <button id="reset-crop" type="button" class="ghost">Reset to route</button>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>4 · Terrain</h2>
+          <p class="muted small">Heights are true to scale.</p>
+          <label class="row">Base thickness <input type="number" data-k="baseMm" min="1" max="20" step="0.5" /> mm</label>
+          <p class="note" id="relief-note"></p>
+          <div class="row wrap" id="relief-actions" hidden>
+            <button id="crop-mountains" type="button" class="ghost">Crop to the mountains</button>
+            <button id="fit-flat" type="button" class="ghost">Bigger print (fit to plate)</button>
+          </div>
+          <details class="advanced">
+            <summary>Advanced</summary>
+            <label class="row">Smoothing <input type="range" data-k="smoothMm" min="0" max="1.5" step="0.05" /><output data-o="smoothMm"></output> mm</label>
+            <div class="row"><label><input type="checkbox" data-k="smoothAuto" /> Auto (suggested)</label></div>
+            <p class="muted small" id="smooth-hint"></p>
+            <label class="row">Vertical exaggeration <input type="range" data-k="exaggeration" min="1" max="10" step="0.5" /><output data-o="exaggeration"></output>×</label>
+            <p class="muted small">Stretches every height by the same factor. Only for very large, flat-looking areas: the climbs will look steeper than they were.</p>
+          </details>
+        </section>
+
+        <section class="card">
+          <h2>5 · Route</h2>
+          <label class="row">Style
+            <select data-k="routeStyle"><option value="raised">Raised</option><option value="flush">Flush (color only)</option></select>
+          </label>
+          <label class="row">Width <input type="number" data-k="routeWidthMm" min="0.4" max="5" step="0.1" /> mm</label>
+          <label class="row" id="route-height-row">Height <input type="number" data-k="routeHeightMm" min="0.2" max="5" step="0.1" /> mm</label>
+          <div class="row color-row"><label><input type="checkbox" data-k="routeOwnColor" /> Own color</label><input type="color" data-color="route" /></div>
+          <p id="route-note" class="note"></p>
+        </section>
+
+        <section class="card">
+          <h2>6 · Water</h2>
+          <label class="row">Surface
+            <select data-k="waterSurface">
+              <option value="off">Off (raw terrain)</option>
+              <option value="flat">Flat</option>
+              <option value="waterlines">Waterlines (follow the shore)</option>
+              <option value="parallel">Parallel lines</option>
+            </select>
+          </label>
+          <div class="water-opts">
+            <div class="row lines-only">Line spacing <input type="number" data-k="waterLineSpacingMm" min="0.6" max="5" step="0.1" /> mm</div>
+            <div class="row lines-only">Line width <input type="number" data-k="waterLineWidthMm" min="0.2" max="2" step="0.05" /> depth <input type="number" data-k="waterLineDepthMm" min="0.2" max="1.5" step="0.1" /> mm</div>
+            <div class="row"><label><input type="checkbox" data-k="rivers" /> Include rivers</label> <input type="number" data-k="riverWidthMm" min="0.3" max="3" step="0.1" /> mm</div>
+            <div class="row color-row"><label><input type="checkbox" data-k="waterOwnColor" /> Own color</label><input type="color" data-color="water" /></div>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>7 · Markers</h2>
+          <div class="row"><label><input type="checkbox" data-k="markersOn" /> Show markers</label></div>
+          <div class="marker-opts">
+            <div class="row wrap">
+              <label><input type="checkbox" data-k="pinStartFinish" /> Start &amp; finish</label>
+              <label><input type="checkbox" data-k="pinJoins" /> Leg joins</label>
+              <label><input type="checkbox" data-k="pinWaypoints" /> GPX waypoints</label>
+            </div>
+            <div class="row">
+              <button id="add-pins" type="button" class="ghost">Add pins on map</button>
+              <button id="clear-pins" type="button" class="ghost">Clear my pins</button>
+            </div>
+            <div class="shape-grid">
+              <label><span>Start</span> <select data-k="markerShapeStart" class="shape-sel"></select></label>
+              <label><span>Finish</span> <select data-k="markerShapeFinish" class="shape-sel"></select></label>
+              <label><span>Checkpoints</span> <select data-k="markerShapeCheckpoint" class="shape-sel"></select></label>
+              <label><span>Waypoints</span> <select data-k="markerShapeWaypoint" class="shape-sel"></select></label>
+            </div>
+            <label class="row">Size <input type="number" data-k="markerDiameterMm" min="1" max="10" step="0.5" /> mm</label>
+            <label class="row">Height above route <input type="number" data-k="markerHeightMm" min="0.2" max="10" step="0.1" /> mm</label>
+            <div class="row color-row">
+              <label>Color
+                <select data-k="markerColor">
+                  <option value="route">Same as route</option>
+                  <option value="terrain">Same as terrain</option>
+                  <option value="own">Own color</option>
+                </select>
+              </label>
+              <input type="color" data-color="markers" id="marker-color-swatch" />
+            </div>
+            <p id="marker-note" class="note"></p>
+            <p class="muted small">Markers are flat-topped and raised. Checkpoints are leg joins and your pins. Start and finish are drawn larger.</p>
+          </div>
+        </section>
+
+        </div>
+        <section class="card export">
+          <h2>8 · Export</h2>
+          <label class="row">Name <input type="text" data-k="title" placeholder="Model name" /></label>
+          <div class="row">
+            <button id="generate" type="button" class="primary">Generate model</button>
+            <label class="small"><input type="checkbox" id="auto" checked /> auto-update</label>
+          </div>
+          <div class="row wrap">
+            <button id="dl-3mf" type="button" disabled>Download 3MF</button>
+            <button id="dl-stl-parts" type="button" class="ghost" disabled>STL per part</button>
+            <button id="dl-stl-merged" type="button" class="ghost" disabled>STL single body</button>
+          </div>
+          <div id="model-readout" class="readout"></div>
+        </section>
+      </aside>
+
+      <section id="view">
+        <div class="tabs">
+          <button data-tab="map" class="tab active" type="button">Map &amp; crop</button>
+          <button data-tab="3d" class="tab" type="button">3D preview</button>
+          <div id="progress" class="progress" hidden><div class="bar"></div><span></span></div>
+        </div>
+        <div class="pane" id="map"></div>
+        <div class="pane" id="three" hidden><div id="dims" class="dims"></div></div>
+        <div id="toast" class="toast" hidden></div>
+      </section>
+    </main>
+
+    <footer>
+      Elevation: <a href="https://github.com/tilezen/joerd/blob/master/docs/attribution.md" target="_blank" rel="noopener">Terrain Tiles</a>
+      (Mapzen / AWS Open Data; SRTM, GMTED2010, ETOPO1 and others) · Map &amp; water:
+      <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a>,
+      <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">© OpenMapTiles</a>,
+      <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap contributors</a>
+    </footer>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
