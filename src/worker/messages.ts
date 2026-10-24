@@ -1,5 +1,5 @@
 import type { CropSuggestion } from '../core/crop';
-import type { LabelSpec } from '../core/label';
+import type { LabelGeom, LabelSpec } from '../core/label';
 import type { MeshReport } from '../core/validate';
 import type { MarkerPin, ModelSettings, PartName } from '../core/model';
 import type { Bounds, Edge } from '../core/project';
@@ -32,6 +32,8 @@ export interface ExportRequest {
   plate: [number, number];
   title: string;
   description: string;
+  /** file name ending, e.g. "_0p4N_0p16L" */
+  suffix: string;
   colors: Partial<Record<PartName, string>>;
 }
 
@@ -81,7 +83,7 @@ export type FromWorker =
       crop: CropSuggestion | null;
       warnings: string[];
       /** underside label as built: depth (0 = none) and whether it was shrunk to fit */
-      label: { depthMm: number; shrunk: boolean; dropped: string[]; box: [number, number, number, number] | null; strokeMm: number; wallMm: number | null };
+      label: { depthMm: number; shrunk: boolean; dropped: string[]; box: [number, number, number, number] | null; strokeMm: number; wallMm: number | null; lineMm: number[]; scaling: LabelGeom['scaling'] | null };
       ms: number;
     }
   | { type: 'exported'; id: number; files: { name: string; data: Uint8Array }[] }

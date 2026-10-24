@@ -1,6 +1,6 @@
 import { strFromU8, unzipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
-import { to3mf, toStl } from '../src/core/export';
+import { printSuffix, to3mf, toStl } from '../src/core/export';
 import { buildModel, DEFAULT_MODEL } from '../src/core/model';
 import { validateMesh } from '../src/core/validate';
 
@@ -80,5 +80,14 @@ describe('STL', () => {
     const n = new DataView(stl.buffer).getUint32(80, true);
     expect(n).toBe(parts.reduce((s, p) => s + p.indices.length / 3, 0));
     expect(stl.length).toBe(84 + n * 50);
+  });
+});
+
+describe('printSuffix', () => {
+  it('names the nozzle and layer height with p for the decimal point', () => {
+    expect(printSuffix(0.4, 0.16)).toBe('_0p4N_0p16L');
+    expect(printSuffix(0.6, 0.2)).toBe('_0p6N_0p2L');
+    expect(printSuffix(0.4, 0.12000000000000001)).toBe('_0p4N_0p12L');
+    expect(printSuffix(1, 0.3)).toBe('_1N_0p3L');
   });
 });

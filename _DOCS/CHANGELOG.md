@@ -2,6 +2,27 @@
 
 Append-only. Newest first. Never edit or remove old entries.
 
+## 2026-10-23 — Live print rating while scaling the label
+
+- Kiran asked how dragging below the minimum size is handled. Before this: only a 2 to 40 mm clamp on release, and the print check said Too fine after the rebuild.
+- Chosen: a live warning, not a hard stop. While scaling, the box turns green, amber or red and shows the size it would set. Small text is still allowed on purpose.
+- `labelWidthsAt` predicts the widths at a new size from the last build.
+  - First version: the readout said "tight" at 3 mm while the card said "Too fine". The exaggeration line has thinner walls than the title, and the readout only looked at the title.
+  - Second version: the per-line minimum ran thinner than the card. The card's check is a percentile over the whole label, so a small line counts less. Fixed by calibrating to the measured widths at the built size.
+  - Tests: predicted vs. rebuilt widths at 3, 4.5, 9 and 5 mm from 6 and 10 mm builds, all within 0.1 mm.
+- Checked in the browser before the calibration (colors and tag switch while dragging). After it, the pane stopped painting frames, so only the unit tests cover the final numbers.
+
+## 2026-10-23 — Smaller exaggeration line, print settings in file names, label drag hint
+
+- Kiran, after trying the live site:
+  - Exaggeration line: now prints smaller than the main text (0.65x), but never below the size that rates Good for the nozzle. Its size comes from measuring that line at full size.
+    - At the default 6 mm Inter with a 0.4 mm nozzle it only drops to 5.7 mm, and a note says so.
+    - Lines of different sizes are spaced by both sizes.
+  - Export file names end with the nozzle and layer height the model was built for, e.g. `_0p4N_0p16L`.
+  - Drag box: it works, in the 3D preview's Underside view after a build. Kiran was most likely in Top view. Added a **Drag it in 3D** button and a hint line to the Label card.
+- Tests: small line size and printable floor at 0.4 and 0.6 mm nozzles, index mapping when empty lines are dropped, every font manifold with a small line, `printSuffix`. Checked in the browser on the Death Ride: overlay, button and the three file names.
+- A cloud session was requested for this work, then withdrawn (the laptop stayed open).
+
 ## 2026-10-23 — Pages workflow actions on Node 24
 
 - GitHub warned that the deploy's actions target Node 20 (deprecated). Bumped to releases that run on Node 24: checkout v7, setup-node v7, upload-pages-artifact v5 (uses upload-artifact v7), deploy-pages v5.

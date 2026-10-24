@@ -47,6 +47,8 @@ export class Preview {
   heightMm = 0;
   /** called after the label box is dragged (new box, model mm) or scaled (scale factor) */
   onLabelEdit: ((box: [number, number, number, number], scale: number) => void) | null = null;
+  /** while scaling: the size it would set and how well that prints, from the last build's print check */
+  labelReadout: ((scale: number) => { text: string; level: 'good' | 'tight' | 'bad' } | null) | null = null;
   private svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   private box: [number, number, number, number] | null = null;
   private drag: { mode: 'move' | 'scale'; p0: [number, number]; box0: [number, number, number, number]; corner: number; scale: number } | null =
@@ -149,8 +151,18 @@ export class Preview {
     let guides = '';
     if (this.drag && Math.abs((x0 + x1) / 2 - W / 2) < 3) guides += line(this.toScreen(W / 2, 0), this.toScreen(W / 2, H));
     if (this.drag && Math.abs((y0 + y1) / 2 - H / 2) < 3) guides += line(this.toScreen(0, H / 2), this.toScreen(W, H / 2));
+    // scaling: color by printability and tag the size, above the box's top edge on screen
+    const r = this.drag?.mode === 'scale' ? this.labelReadout?.(this.drag.scale) : null;
+    this.svg.setAttribute('class', 'label-overlay' + (this.drag ? ' dragging' : '') + (r ? ` rate-${r.level}` : ''));
+    let tag = '';
+    if (r) {
+      const top = pts.reduce((a, p) => (p[1] < a[1] ? p : a));
+      const cx = pts.reduce((s, p) => s + p[0], 0) / 4;
+      tag = `<text class="size-tag" x="${cx.toFixed(1)}" y="${(top[1] - 12).toFixed(1)}">${r.text}</text>`;
+    }
     this.svg.innerHTML =
       guides +
+      tag +
       `<polygon data-drag="move" points="${poly}"/>` +
       pts.map((p, i) => `<rect data-drag="scale" data-corner="${i}" x="${p[0] - 6}" y="${p[1] - 6}" width="12" height="12"/>`).join('');
   }

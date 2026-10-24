@@ -149,13 +149,17 @@ A free public static web app on GitHub Pages. It turns one or more GPX files int
 - Lines:
   - the typed text (several lines; the placeholder is the ride name);
   - optional **Ride stats**: total distance of all files and total climbing, in km/m or mi/ft;
-  - optional **Vertical exaggeration**: "Vertical exaggeration Nx", with "(true scale)" at 1x.
+  - optional **Vertical exaggeration**: "Vertical exaggeration Nx", with "(true scale)" at 1x. It is the last line and prints smaller (`LabelSpec.small`):
+    - 0.65 x the main size, raised to the smallest size that still rates Good for the nozzle (measured on that line at full size, since widths scale with size; rounded up to 0.1 mm), and never bigger than the main text;
+    - when it is the only line, it is the main text, at full size;
+    - a note says when the line was held at the printable minimum. Inter Bold at the default 6 mm with a 0.4 mm nozzle only goes down to 5.7 mm; a thicker font or a bigger main size gives more room;
+    - the card's text preview shows it smaller too.
 - Fonts (`src/fonts.ts`, `labelFont`, default Inter): bold weights only, since thin strokes close up.
   - The six fonts: Inter Bold, Atkinson Hyperlegible Bold (best small), Nunito ExtraBold (rounded), Barlow Condensed Bold (long names), Roboto Slab Bold, JetBrains Mono Bold.
   - Licences: all OFL except Roboto Slab (Apache-2.0). Packages are fontsource 5.3.0, latin WOFF, 14 to 31 KB each.
   - The worker fetches each font the first time it's used and parses it with opentype.js. The card's text preview is shown in the chosen font (FontFace API).
   - Characters a font lacks (emoji) are left out, with a note.
-- Size is the capital-letter height in mm (default 6). Lines are 1.6 x the size apart.
+- Size is the capital-letter height in mm (default 6). Lines are 1.6 x the size apart; between lines of different sizes, 0.6 x the upper line's size plus the lower line's size.
 - Print check, measured from the built text (`thinnestPx` in `label.ts`): an area-weighted local thickness on the 0.05 mm bitmap, 5th percentile. Sharp notches and stroke tips don't count.
   - Groove: the thinnest letter stroke, which is a gap in the first layers. Wall: the thinnest plastic between strokes or inside counters, up to 2 mm.
   - **Good** when groove ≥ 2 x nozzle and wall ≥ 1.5 x nozzle. **Tight** at ≥ 1 x for both. **Too fine** below that. The readout names which limit applies.
@@ -182,8 +186,12 @@ A free public static web app on GitHub Pages. It turns one or more GPX files int
     - `fixSlivers`: zero-area triangles are flipped with their neighbour.
     - `fixTJunctions`: a hole bridge running exactly through a vertex is split at that vertex.
 - 3D preview: **Top / Underside** toggle. Underside looks up from below, tilted, with a light from below; the pocket is shaded darker (preview only).
+- The Label card's **Drag it in 3D** button opens the 3D preview in the Underside view (or says to generate first), and a line under the placement rows says where the drag box is.
 - Dragging in the Underside view:
   - A dashed box over the text: drag it to move; drag a corner to scale (aspect kept, opposite corner fixed, size rounded to 0.5 mm, 2 to 40 mm). Orbiting still works outside the box.
+  - While scaling, the box is colored by the print check at the size it would set: green Good, amber Tight, red Too fine. A tag above it shows that size ("4.5 mm · tight"). Dragging smaller than Good is allowed (2 mm hard floor).
+    - The rating needs no rebuild: `labelWidthsAt` in `label.ts` predicts the thinnest groove and wall at any size from widths measured at the built size. Main lines scale with the size; the exaggeration line follows its own rule (held at its printable floor until the main text is smaller).
+    - The prediction is calibrated to match the measurement exactly at the built size, since the check is a percentile over the whole label's area. Elsewhere it stays within 0.08 mm (under 2 raster pixels) of what the rebuild then measures.
   - Only the box moves during the drag. On release, each axis snaps on its own: to Centered if the box center is within 3 mm of the center line (a dashed guide shows), else to the nearer edge with the gap rounded to 0.5 mm. The fields update and the model rebuilds.
 
 ### 8. Export
@@ -197,6 +205,7 @@ A free public static web app on GitHub Pages. It turns one or more GPX files int
   - A hybrid (components layout + Slic3r_PE config) was tested and does not work in PrusaSlicer.
 - STL (fallback): one file per part plus a merged single-body file.
 - No STEP.
+- File names: the title (slugged), then the nozzle and layer height the model was built for, with "p" for the decimal point (`printSuffix` in `export.ts`): `Death-Ride-2025_0p4N_0p16L.3mf`, `..._parts_0p4N_0p16L.zip` (each STL inside ends the same way), `..._single_0p4N_0p16L.stl`.
 
 ### 9. UI
 - Left panel:
@@ -243,5 +252,7 @@ A free public static web app on GitHub Pages. It turns one or more GPX files int
 - OrcaSlicer: confirm in the app that the Bambu-layout 3MF opens with named parts.
 - Bambu Studio GUI: confirm it slices with the parts on separate filaments.
 - "Crop to the mountains" can pick a window where the route runs along one edge (SRMR does). Prefer windows with the route nearer the middle?
+- Next (Kiran, 2026-10-23, not started):
+  - A see-through map overlay, with the crop draggable while you see it, so map features can be placed on the print. To settle: whether it's a map draped on the 3D preview or terrain shown over the 2D crop map, plus opacity and map style.
 - On hold (Kiran, 2026-10-23): tiled print. Set an overall size and a maximum tile size; the app scales and splits the print into plate-sized tiles. Open choices: joints, tile labels, markers at seams, export format.
 - Deferred: trimming short end-of-day spurs from the route itself, README screenshot and link-preview polish.

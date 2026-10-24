@@ -130,6 +130,7 @@ details.advanced[open] > summary { margin-bottom: 6px; }
 .card h3.sub { font-size: 12px; font-weight: 600; margin: 10px 0 4px; }
 .card h3.sub:first-of-type { margin-top: 0; }
 #label-preview { white-space: pre-line; font-size: 15px; line-height: 1.5; margin: 4px 0; }
+#label-preview .small-line { font-size: 0.7em; }
 #label-preview:empty, #label-print:empty { display: none; }
 #label-print { margin: 2px 0 6px; padding-left: 8px; border-left: 3px solid var(--line); }
 #label-print.good { border-color: #3c9a5f; }
@@ -145,6 +146,13 @@ details.tips li { margin-bottom: 4px; }
 .label-overlay polygon { fill: color-mix(in srgb, var(--accent) 12%, transparent); stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 5 3; pointer-events: auto; cursor: move; }
 .label-overlay rect { fill: var(--card); stroke: var(--accent); stroke-width: 1.5; pointer-events: auto; cursor: nwse-resize; }
 .label-overlay .guide { stroke: var(--accent); stroke-width: 1; stroke-dasharray: 3 3; }
+/* while scaling: green prints cleanly, amber is tight, red is too fine (same levels as the print check) */
+.label-overlay.rate-good { --rate: #2e9d5b; }
+.label-overlay.rate-tight { --rate: #d99a00; }
+.label-overlay.rate-bad { --rate: #d33a2c; }
+.label-overlay[class*='rate-'] polygon { stroke: var(--rate); fill: color-mix(in srgb, var(--rate) 15%, transparent); }
+.label-overlay[class*='rate-'] rect { stroke: var(--rate); }
+.label-overlay .size-tag { fill: var(--rate, var(--accent)); stroke: var(--card); stroke-width: 3px; paint-order: stroke; font: 600 13px system-ui, sans-serif; text-anchor: middle; }
 .dims, .view-toggle { z-index: 2; }
 #label-preview:empty { display: none; }
 .progress { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); padding-bottom: 6px; }

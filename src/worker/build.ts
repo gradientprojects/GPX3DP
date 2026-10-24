@@ -1,7 +1,7 @@
 import { FLAT_RELIEF_MM, suggestCrop, type CropSuggestion } from '../core/crop';
 import type { Font } from 'opentype.js';
 import { pxFromMercX, pxFromMercY } from '../core/geo';
-import { layoutLabel } from '../core/label';
+import { layoutLabel, type LabelGeom } from '../core/label';
 import { buildModel, type ModelInput, type ModelStats, type Part } from '../core/model';
 import { makeFrame } from '../core/project';
 import { chooseZoom, tileCount } from '../core/terrarium';
@@ -21,7 +21,7 @@ export interface BuildResult {
   crop: CropSuggestion | null;
   /** problems that didn't stop the build (e.g. water tiles unavailable) */
   warnings: string[];
-  label: { depthMm: number; shrunk: boolean; dropped: string[]; box: [number, number, number, number] | null; strokeMm: number; wallMm: number | null };
+  label: { depthMm: number; shrunk: boolean; dropped: string[]; box: [number, number, number, number] | null; strokeMm: number; wallMm: number | null; lineMm: number[]; scaling: LabelGeom['scaling'] | null };
 }
 
 const labelFonts = new Map<string, Font>();
@@ -110,6 +110,6 @@ export async function buildFromRequest(req: BuildRequest, progress: Progress): P
     tiles: elevCache.tiles,
     crop,
     warnings,
-    label: { depthMm: stats.labelDepthMm, shrunk: !!label?.shrunk, dropped: label?.dropped ?? [], box: label?.box ?? null, strokeMm: label?.strokeMm ?? 0, wallMm: label?.wallMm ?? null },
+    label: { depthMm: stats.labelDepthMm, shrunk: !!label?.shrunk, dropped: label?.dropped ?? [], box: label?.box ?? null, strokeMm: label?.strokeMm ?? 0, wallMm: label?.wallMm ?? null, lineMm: label?.lineMm ?? [], scaling: label?.scaling ?? null },
   };
 }

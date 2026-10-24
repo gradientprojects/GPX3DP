@@ -7,7 +7,8 @@ import { fitToPlate, PRINTERS } from './core/printers';
 import { makeFrame, mmToLat, mmToLon, routeBounds, toMmX, toMmY, type Bounds, type PrintFrame } from './core/project';
 import { FLAT_RELIEF_MM } from './core/crop';
 import { suggestExaggeration } from './core/exaggeration';
-import { snapPlacement, type LabelSpec } from './core/label';
+import { printSuffix } from './core/export';
+import { GOOD_GROOVE_NOZZLES, GOOD_WALL_NOZZLES, labelWidthsAt, snapPlacement, type LabelSpec } from './core/label';
 import { simplifyLine } from './core/simplify';
 import { LABEL_FONTS, labelFont } from './fonts';
 import { DEFAULTS, fromHash, NON_GEOMETRY, roundToLayers, suggestedSmoothMm, toHash, toLayers, type AppSettings } from './settings';
@@ -115,9 +116,25 @@ function labelLines(): string[] {
 
 function labelSpec(): LabelSpec | null {
   const lines = labelLines();
-  return lines.length
-    ? { lines, sizeMm: S.labelSizeMm, edgeX: S.labelEdgeX, offX: S.labelOffX, edgeY: S.labelEdgeY, offY: S.labelOffY, align: S.labelAlign }
-    : null;
+  if (!lines.length) return null;
+  const small = exagLineIndex(lines);
+  return {
+    lines,
+    sizeMm: S.labelSizeMm,
+    edgeX: S.labelEdgeX,
+    offX: S.labelOffX,
+    edgeY: S.labelEdgeY,
+    offY: S.labelOffY,
+    align: S.labelAlign,
+    ...(small >= 0 && { small: { lines: [small], scale: EXAG_LINE_SCALE, nozzleMm: S.nozzleMm } }),
+  };
+}
+
+/** the exaggeration note prints smaller than the main text, but never too small to print */
+const EXAG_LINE_SCALE = 0.65;
+/** index of the exaggeration line (always last) in `lines`, or -1 */
+function exagLineIndex(lines: string[]): number {
+  return S.labelExag && lines.length > 1 ? lines.length - 1 : -1;
 }
 
 function routeLinesMm(f: PrintFrame): Float64Array[] {
@@ -390,7 +407,15 @@ function refreshReadouts() {
       : '';
   ($('#marker-color-swatch') as HTMLElement).hidden = S.markerColor !== 'own';
   const lines = labelLines();
-  $('#label-preview').textContent = lines.join('\n');
+  const small = exagLineIndex(lines);
+  $('#label-preview').replaceChildren(
+    ...lines.map((l, k) => {
+      const d = document.createElement('div');
+      d.textContent = l;
+      if (k === small) d.className = 'small-line';
+      return d;
+    }),
+  );
   showPreviewFont();
   refreshExagHint();
   ($('[data-k="labelText"]') as HTMLTextAreaElement).placeholder = legs[order[0]]?.name ?? 'Ride name';
@@ -401,6 +426,8 @@ function refreshReadouts() {
 let builtScale: { scale: number; relief1xMm: number } | null = null;
 /** exaggeration of the model the worker holds (what gets exported) */
 let builtExag = 1;
+/** nozzle and layer height the worker's model was built for, named in the export file names */
+let builtPrint = { nozzleMm: S.nozzleMm, layerMm: +S.layerHeightMm };
 /** Suggested exaggeration under Terrain > Advanced: a hint with a button, never applied by itself. */
 function refreshExagHint() {
   const hint = $('#exag-hint');
@@ -440,6 +467,15 @@ function showPreviewFont() {
 /** what the last build did with the label */
 let builtLabel: Extract<FromWorker, { type: 'built' }>['label'] | null = null;
 
+/** Good / Tight / Too fine for the thinnest groove and wall (mm) with the current nozzle */
+function printLevel(g: number, w: number | null): 'good' | 'tight' | 'bad' {
+  const n = S.nozzleMm;
+  return g >= GOOD_GROOVE_NOZZLES * n && (w === null || w >= GOOD_WALL_NOZZLES * n) ? 'good' : g >= n && (w === null || w >= n) ? 'tight' : 'bad';
+}
+
+/** size the drag would set: rounded to 0.5 mm, 2 to 40 mm */
+const draggedSize = (scale: number) => Math.min(40, Math.max(2, Math.round(S.labelSizeMm * scale * 2) / 2));
+
 /**
  * Print check from the built text: the strokes are grooves in the first layers (squish closes ones under
  * about 2 nozzle widths) and the plastic between them must be at least a line wide.
@@ -450,10 +486,10 @@ function refreshLabelPrint() {
   el.textContent = '';
   if (!labelLines().length || !builtLabel?.strokeMm) return;
   const n = S.nozzleMm, g = builtLabel.strokeMm, w = builtLabel.wallMm;
-  const level = g >= 2 * n && (w === null || w >= 1.5 * n) ? 'good' : g >= n && (w === null || w >= n) ? 'tight' : 'bad';
+  const level = printLevel(g, w);
   const widths = `Thinnest groove ${g.toFixed(2)} mm (${(g / n).toFixed(1)} nozzle widths)` + (w === null ? '' : `, thinnest wall ${w.toFixed(2)} mm`);
   // size that brings both up to the "good" level: widths scale with the letter size
-  const f = Math.max((2 * n) / g, w === null ? 0 : (1.5 * n) / w);
+  const f = Math.max((GOOD_GROOVE_NOZZLES * n) / g, w === null ? 0 : (GOOD_WALL_NOZZLES * n) / w);
   const size = Math.ceil(S.labelSizeMm * f * 2) / 2;
   const fix = builtLabel.shrunk
     ? ' The text was shrunk to fit, so use fewer or shorter lines, a condensed font or a bigger print.'
@@ -461,7 +497,7 @@ function refreshLabelPrint() {
       ? ` Size ${size} mm or more prints cleanly.`
       : ' Use a bigger print or fewer words.';
   // say which limit it is: grooves fill in, walls between strokes don't print
-  const thinGroove = g < 2 * n, thinWall = w !== null && w < 1.5 * n;
+  const thinGroove = g < GOOD_GROOVE_NOZZLES * n, thinWall = w !== null && w < GOOD_WALL_NOZZLES * n;
   const why =
     level === 'tight'
       ? [thinGroove && 'the first layer may partly fill the letters', thinWall && 'the plastic between strokes is barely a line wide'].filter(Boolean).join(', and ')
@@ -478,6 +514,9 @@ function refreshLabelNote() {
   const notes: string[] = [];
   if (labelLines().length) {
     if (builtLabel?.shrunk) notes.push("The text didn't fit, so it was scaled down to fit inside the edge.");
+    const exagMm = builtLabel?.lineMm.length && exagLineIndex(labelLines()) >= 0 ? builtLabel.lineMm[builtLabel.lineMm.length - 1] : 0;
+    if (exagMm > EXAG_LINE_SCALE * S.labelSizeMm + 0.1)
+      notes.push(`The exaggeration line prints at ${exagMm} mm, the smallest that prints cleanly with a ${S.nozzleMm} mm nozzle.`);
     if (builtLabel?.dropped.length) notes.push(`Left out (not in the font): ${builtLabel.dropped.join(' ')}`);
     const asked = toLayers(S.labelDepthMm, +S.layerHeightMm) * +S.layerHeightMm;
     if (builtLabel && builtLabel.depthMm && builtLabel.depthMm < asked - 1e-6)
@@ -760,6 +799,7 @@ async function runBuild() {
     const fr = frame();
     builtScale = fr ? { scale: 1000 / fr.mmPerGroundM, relief1xMm: res.reliefMm / builtModel.exaggeration } : null;
     builtExag = builtModel.exaggeration;
+    builtPrint = { nozzleMm: S.nozzleMm, layerMm: +S.layerHeightMm };
     refreshExagHint();
     const flat = res.reliefMm < FLAT_RELIEF_MM;
     $('#relief-note').textContent = flat
@@ -796,6 +836,7 @@ async function download(format: '3mf' | 'stl-parts' | 'stl-merged') {
     // say when heights are stretched, so the file isn't mistaken for true scale
     description: ATTRIBUTION + (builtExag !== 1 ? ` Vertical exaggeration ${builtExag}×.` : ''),
     colors: S.colors,
+    suffix: printSuffix(builtPrint.nozzleMm, builtPrint.layerMm),
   });
   hideProgress();
   if (res.type === 'error') return toast(res.message);
@@ -838,9 +879,22 @@ function placeLabel(p: Partial<Pick<AppSettings, 'labelEdgeX' | 'labelOffX' | 'l
   changed(true);
 }
 $('#label-center').onclick = () => placeLabel({ labelEdgeX: 'center', labelOffX: 0, labelEdgeY: 'middle', labelOffY: 0 });
+$('#label-show').onclick = () => {
+  if (!builtLabel?.box) return toast(labelLines().length ? 'Generate the model first, then drag the text there.' : 'Add some label text first.');
+  showTab('3d');
+  ($('[data-view="bottom"]') as HTMLButtonElement).click();
+};
 // dragged or scaled in the Underside view: snap each axis to center or its nearest edge
+// while scaling: widths scale with the letter size, so the last build's widths rate the new size
+preview.labelReadout = (scale) => {
+  if (!builtLabel?.scaling?.main.strokeMm) return null;
+  const size = draggedSize(scale);
+  const w = labelWidthsAt(builtLabel.scaling, size);
+  const level = printLevel(w.strokeMm, w.wallMm);
+  return { text: `${size} mm` + (level === 'good' ? '' : level === 'tight' ? ' · tight' : ' · too fine'), level };
+};
 preview.onLabelEdit = (box, scale) => {
-  const size = Math.min(40, Math.max(2, Math.round(S.labelSizeMm * scale * 2) / 2));
+  const size = draggedSize(scale);
   const p = snapPlacement(box, preview.widthMm, preview.heightMm);
   placeLabel({ labelEdgeX: p.edgeX, labelOffX: p.offX, labelEdgeY: p.edgeY, labelOffY: p.offY, labelSizeMm: size });
 };

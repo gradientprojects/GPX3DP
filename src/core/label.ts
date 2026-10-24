@@ -20,7 +20,16 @@ export interface LabelSpec {
   offY: number;
   /** line alignment within the block; auto follows edgeX */
   align: LabelAlign;
+  /**
+   * Lines printed smaller (e.g. the exaggeration note): `scale` x sizeMm, but never smaller than the size
+   * at which the line prints cleanly with `nozzleMm` (grooves at least 2 nozzle widths, walls 1.5).
+   */
+  small?: { lines: number[]; scale: number; nozzleMm: number };
 }
+
+/** print-check limits for a clean deboss, in nozzle widths */
+export const GOOD_GROOVE_NOZZLES = 2;
+export const GOOD_WALL_NOZZLES = 1.5;
 
 /** Box (model mm, x0 y0 x1 y1) to the placement it is nearest to on each axis, seen from below. */
 export function snapPlacement(box: [number, number, number, number], widthMm: number, heightMm: number, snapMm = 3) {
@@ -48,6 +57,19 @@ export interface LabelGeom {
   strokeMm: number;
   /** thinnest plastic between strokes or inside counters, mm; null when there is none (e.g. "I") */
   wallMm: number | null;
+  /** cap height of each line before any shrink to fit, mm */
+  lineMm: number[];
+  /**
+   * widths at sizeMm, unshrunk, for rating other sizes (`labelWidthsAt`): the full-size lines, and the small
+   * lines laid out at full size with their size rule
+   */
+  scaling: {
+    sizeMm: number;
+    /** the whole label's widths as measured, at sizeMm (undoing any shrink) */
+    built: Widths;
+    main: Widths;
+    small: (Widths & { scale: number; nozzleMm: number }) | null;
+  };
 }
 
 /** bitmap resolution for tracing, mm */
@@ -61,9 +83,11 @@ const LINE_SPACING = 1.6;
  */
 export function layoutLabel(font: Font, spec: LabelSpec, widthMm: number, heightMm: number, marginMm = 3): LabelGeom | null {
   const dropped = new Set<string>();
-  const lines = spec.lines
-    .map((l) =>
-      Array.from(l)
+  const smallSet = new Set(spec.small?.lines ?? []);
+  const kept = spec.lines
+    .map((l, k) => ({
+      k,
+      text: Array.from(l)
         .filter((ch) => {
           const ok = /\s/.test(ch) || font.charToGlyphIndex(ch) > 0;
           if (!ok && !/[‍︎️]/.test(ch)) dropped.add(ch);
@@ -72,21 +96,32 @@ export function layoutLabel(font: Font, spec: LabelSpec, widthMm: number, height
         .join('')
         .replace(/\s+/g, ' ')
         .trim(),
-    )
-    .filter(Boolean);
-  if (!lines.length || spec.sizeMm <= 0) return null;
+    }))
+    .filter((l) => l.text);
+  if (!kept.length || spec.sizeMm <= 0) return null;
+  const lines = kept.map((l) => l.text);
   const capEm = (font.tables.os2?.sCapHeight || 0.7 * font.unitsPerEm) / font.unitsPerEm;
-  const fontSize = spec.sizeMm / capEm;
+  // small lines: widths at full size (the thinnest of them), then each line's own size from its widths
+  const small = spec.small;
+  let smallFull: Widths | null = null;
+  const lineMm = kept.map((l) => {
+    if (!small || !smallSet.has(l.k)) return spec.sizeMm;
+    const w = lineWidths(font, l.text, spec.sizeMm);
+    smallFull = smallFull ? minWidths(smallFull, w) : w;
+    return smallSizeMm(spec.sizeMm, w, small.scale, small.nozzleMm);
+  });
 
   // glyph outlines at size, in block coordinates: u right, v up, first baseline at v = 0
-  const widths = lines.map((l) => font.getAdvanceWidth(l, fontSize, { kerning: true }));
+  const widths = lines.map((l, k) => font.getAdvanceWidth(l, lineMm[k] / capEm, { kerning: true }));
   const blockW = Math.max(...widths);
   const glyphs: number[][][] = [];
   const align = spec.align === 'auto' ? spec.edgeX : spec.align;
+  let base = 0;
   lines.forEach((line, k) => {
+    // room below the line above (descenders and gap) plus this line's cap height: 1.6 x size when equal
+    if (k) base -= (LINE_SPACING - 1) * lineMm[k - 1] + lineMm[k];
     const off = align === 'left' ? 0 : align === 'center' ? (blockW - widths[k]) / 2 : blockW - widths[k];
-    const base = -k * spec.sizeMm * LINE_SPACING;
-    font.forEachGlyph(line, off, 0, fontSize, { kerning: true }, (g, gx, gy, gs) => {
+    font.forEachGlyph(line, off, 0, lineMm[k] / capEm, { kerning: true }, (g, gx, gy, gs) => {
       const rings = flatten(g.getPath(gx, gy, gs).commands, base);
       if (rings.length) glyphs.push(rings);
     });
@@ -150,14 +185,75 @@ export function layoutLabel(font: Font, spec: LabelSpec, widthMm: number, height
   const box: [number, number, number, number] = [widthMm - left - bw, bottom, widthMm - left, bottom + bh];
   const stroke = thinnestPx(mask, NX, NY, 1, Infinity);
   const wall = thinnestPx(mask, NX, NY, 0, WALL_MAX_MM / PX);
+  const strokeMm = (stroke ?? 0) * PX, wallMm = wall === null ? null : wall * PX;
+  const mainLines = kept.filter((l) => !smallSet.has(l.k)).map((l) => l.text);
+  let main = { strokeMm, wallMm };
+  if (mainLines.length && (s < 1 || mainLines.length < lines.length)) {
+    const m = layoutLabel(font, { ...spec, lines: mainLines, small: undefined }, 1e4, 1e4, 0);
+    if (m) main = { strokeMm: m.strokeMm, wallMm: m.wallMm };
+  }
   return {
     rings,
     grid: { ox, oy, step: PX / 2 },
     box,
     shrunk: s < 1,
     dropped: [...dropped],
-    strokeMm: (stroke ?? 0) * PX,
-    wallMm: wall === null ? null : wall * PX,
+    strokeMm,
+    wallMm,
+    lineMm,
+    scaling: { sizeMm: spec.sizeMm, built: scaled({ strokeMm, wallMm }, 1 / s), main, small: small && smallFull ? { ...(smallFull as Widths), scale: small.scale, nozzleMm: small.nozzleMm } : null },
+  };
+}
+
+interface Widths {
+  strokeMm: number;
+  wallMm: number | null;
+}
+
+/** thinnest of two: a zero stroke means none measured */
+function minWidths(a: Widths, b: Widths): Widths {
+  const walls = [a.wallMm, b.wallMm].filter((v): v is number => v !== null);
+  return { strokeMm: a.strokeMm && b.strokeMm ? Math.min(a.strokeMm, b.strokeMm) : a.strokeMm || b.strokeMm, wallMm: walls.length ? Math.min(...walls) : null };
+}
+
+/** thinnest stroke and wall (mm) of one line laid out alone at sizeMm, unshrunk */
+function lineWidths(font: Font, text: string, sizeMm: number): Widths {
+  const g = layoutLabel(font, { lines: [text], sizeMm, edgeX: 'center', offX: 0, edgeY: 'middle', offY: 0, align: 'left' }, 1e4, 1e4, 0);
+  return { strokeMm: g?.strokeMm ?? 0, wallMm: g?.wallMm ?? null };
+}
+
+/**
+ * Size for a small line at main size `sizeMm`, given its widths `w` at that size: `scale` x sizeMm, raised
+ * to where it still prints cleanly, never above sizeMm. Widths scale with the letter size.
+ */
+function smallSizeMm(sizeMm: number, w: Widths, scale: number, nozzleMm: number): number {
+  if (!w.strokeMm) return sizeMm;
+  const n = nozzleMm;
+  const f = Math.max(scale, (GOOD_GROOVE_NOZZLES * n) / w.strokeMm, w.wallMm ? (GOOD_WALL_NOZZLES * n) / w.wallMm : 0);
+  // up to the next 0.1 mm, so the line is never just under the limit
+  return Math.min(sizeMm, Math.ceil(sizeMm * f * 10 - 1e-9) / 10);
+}
+
+const scaled = (w: Widths, f: number): Widths => ({ strokeMm: w.strokeMm * f, wallMm: w.wallMm === null ? null : w.wallMm * f });
+
+/**
+ * Thinnest stroke and wall of the label if its size were `sizeMm` (before any shrink to fit), from the widths
+ * measured at the built size: main lines scale with the size, small lines follow their own size rule.
+ * Lets the UI rate a new size while dragging, without rebuilding.
+ */
+export function labelWidthsAt(sc: LabelGeom['scaling'], sizeMm: number): Widths {
+  const raw = (z: number): Widths => {
+    const main = scaled(sc.main, z / sc.sizeMm);
+    if (!sc.small) return main;
+    const atZ = scaled(sc.small, z / sc.sizeMm);
+    return minWidths(main, scaled(atZ, smallSizeMm(z, atZ, sc.small.scale, sc.small.nozzleMm) / z));
+  };
+  // the whole label's check is a percentile over all its area, not the thinnest line's: calibrate so the
+  // prediction at the built size is exactly what was measured there
+  const p = raw(sizeMm), b = raw(sc.sizeMm);
+  return {
+    strokeMm: b.strokeMm ? (p.strokeMm * sc.built.strokeMm) / b.strokeMm : p.strokeMm,
+    wallMm: p.wallMm === null || sc.built.wallMm === null || !b.wallMm ? p.wallMm : (p.wallMm * sc.built.wallMm) / b.wallMm,
   };
 }
 

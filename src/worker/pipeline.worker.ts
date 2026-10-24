@@ -103,7 +103,7 @@ self.onmessage = async (ev: MessageEvent<ToWorker>) => {
       const files: { name: string; data: Uint8Array }[] = [];
       if (m.format === '3mf') {
         files.push({
-          name: `${name}.3mf`,
+          name: `${name}${m.suffix}.3mf`,
           data: to3mf(lastParts, {
             title: m.title || 'GPX3DP model',
             description: m.description,
@@ -114,9 +114,9 @@ self.onmessage = async (ev: MessageEvent<ToWorker>) => {
         });
       } else if (m.format === 'stl-parts') {
         const z: Record<string, Uint8Array> = {};
-        for (const p of lastParts) z[`${name}_${p.name}.stl`] = toStl([p], `GPX3DP ${p.name}`);
+        for (const p of lastParts) z[`${name}_${p.name}${m.suffix}.stl`] = toStl([p], `GPX3DP ${p.name}`);
         z['ATTRIBUTION.txt'] = strToU8(m.description);
-        files.push({ name: `${name}_parts.zip`, data: zipSync(z, { level: 4 }) });
+        files.push({ name: `${name}_parts${m.suffix}.zip`, data: zipSync(z, { level: 4 }) });
       } else {
         // one clean solid: rebuild with every element folded into the terrain
         const merged = buildModel(lastInput, {
@@ -125,7 +125,7 @@ self.onmessage = async (ev: MessageEvent<ToWorker>) => {
           waterOwnColor: false,
           markerColor: 'terrain',
         }).parts;
-        files.push({ name: `${name}_single.stl`, data: toStl(merged, 'GPX3DP merged') });
+        files.push({ name: `${name}_single${m.suffix}.stl`, data: toStl(merged, 'GPX3DP merged') });
       }
       post({ type: 'exported', id: m.id, files }, files.map((f) => f.data.buffer));
     }

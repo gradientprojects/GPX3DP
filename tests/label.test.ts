@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { parse } from 'opentype.js';
 import { describe, expect, it } from 'vitest';
-import { inRing, layoutLabel, ringArea, snapPlacement, thinnestPx, traceRings } from '../src/core/label';
+import { inRing, labelWidthsAt, layoutLabel, ringArea, snapPlacement, thinnestPx, traceRings } from '../src/core/label';
 import { LABEL_FONTS } from '../src/fonts';
 import { buildSlab } from '../src/core/mesh';
 import { buildModel, DEFAULT_MODEL, type ModelSettings } from '../src/core/model';
@@ -140,11 +140,72 @@ describe('print check', () => {
     expect(a.wallMm).not.toBeNull();
   });
 
+  describe('small line', () => {
+    const exag = 'Vertical exaggeration 1.5×';
+    const small = (nozzleMm: number, sizeMm = 5) =>
+      layoutLabel(font, spec(['Death Ride 2025', exag], { sizeMm, small: { lines: [1], scale: 0.65, nozzleMm } }), 150, 80)!;
+    const alone = (sizeMm: number) => layoutLabel(font, spec([exag], { sizeMm }), 150, 80)!;
+
+    it('prints at the scale when that is printable', () => {
+      const g = small(0.2);
+      expect(g.lineMm[0]).toBe(5);
+      expect(g.lineMm[1]).toBeGreaterThanOrEqual(3.25);
+      expect(g.lineMm[1]).toBeLessThanOrEqual(3.3);
+      // the block is shorter than two full-size lines
+      const full = layoutLabel(font, spec(['Death Ride 2025', exag], { sizeMm: 5 }), 150, 80)!;
+      expect(g.box[3] - g.box[1]).toBeLessThan(full.box[3] - full.box[1]);
+    });
+
+    for (const n of [0.4, 0.6])
+      it(`never below the printable size for a ${n} mm nozzle`, () => {
+        const g = small(n, 10);
+        expect(g.lineMm[1]).toBeLessThan(10);
+        const a = alone(g.lineMm[1]);
+        // within a pixel of the "good" limits (rasterizing isn't exactly linear)
+        expect(a.strokeMm).toBeGreaterThanOrEqual(2 * n - 0.05);
+        if (a.wallMm !== null) expect(a.wallMm).toBeGreaterThanOrEqual(1.5 * n - 0.05);
+      });
+
+    it('main widths leave out the small line and any shrink', () => {
+      const g = small(0.4, 10);
+      const one = layoutLabel(font, spec(['Death Ride 2025'], { sizeMm: 10 }), 1e4, 1e4, 0)!;
+      expect(g.scaling.main.strokeMm).toBeCloseTo(one.strokeMm, 5);
+      expect(g.strokeMm).toBeLessThan(g.scaling.main.strokeMm);
+      // shrunk to fit a small print: main stays at the asked size
+      const tiny = layoutLabel(font, spec(['Death Ride 2025'], { sizeMm: 10 }), 60, 40)!;
+      expect(tiny.shrunk).toBe(true);
+      expect(tiny.scaling.main.strokeMm).toBeCloseTo(one.strokeMm, 5);
+    });
+
+    // what the drag readout predicts must match what the rebuild then measures
+    for (const [from, to] of [[6, 3], [6, 4.5], [6, 9], [10, 5]])
+      it(`predicted widths at ${to} mm (built at ${from} mm) match a layout at ${to} mm`, () => {
+        const sp = (sizeMm: number) => spec(['Death Ride 2025', 'Vertical exaggeration 1× (true scale)'], { sizeMm, small: { lines: [1], scale: 0.65, nozzleMm: 0.4 } });
+        const built = layoutLabel(font, sp(from), 1e4, 1e4, 0)!;
+        const real = layoutLabel(font, sp(to), 1e4, 1e4, 0)!;
+        const p = labelWidthsAt(built.scaling, to);
+        // rasterizing at 0.05 mm isn't exactly linear: within two pixels
+        expect(Math.abs(p.strokeMm - real.strokeMm)).toBeLessThan(0.1);
+        expect(Math.abs((p.wallMm ?? 0) - (real.wallMm ?? 0))).toBeLessThan(0.1);
+      });
+
+    it('stays at the main size when even that is too fine', () => {
+      expect(small(1, 4).lineMm[1]).toBe(4);
+    });
+
+    it('follows the line it was given when empty lines are dropped', () => {
+      const g = layoutLabel(font, spec(['', 'Death Ride', '  ', exag], { small: { lines: [3], scale: 0.65, nozzleMm: 0.2 } }), 150, 80)!;
+      expect(g.lineMm).toEqual([5, 3.3]);
+    });
+  });
+
   for (const f of LABEL_FONTS)
     it(`${f.name} parses, lays out and gives a manifold pocket`, () => {
       const file = readFileSync(new URL(`../node_modules/${f.file}`, import.meta.url));
       const ff = parse(file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength));
-      const g = layoutLabel(ff, spec(['Death Ride 2025', '104 mi · 12,966 ft'], { sizeMm: 5 }), 100, 60)!;
+      const lines = ['Death Ride 2025', '104 mi · 12,966 ft', 'Vertical exaggeration 1.5×'];
+      const g = layoutLabel(ff, spec(lines, { sizeMm: 5, small: { lines: [2], scale: 0.65, nozzleMm: 0.2 } }), 100, 60)!;
+      expect(g.lineMm[2]).toBeLessThan(5);
       expect(g.dropped).toEqual([]);
       expect(g.strokeMm).toBeGreaterThan(0.4);
       const n = (c: number) => new Uint8Array(200 * 120).fill(c);

@@ -8,6 +8,12 @@ export const PART_LABELS: Record<PartName, string> = {
   markers: 'markers',
 };
 
+/** File name ending for the print settings, e.g. 0.4 mm nozzle at 0.16 mm layers → "_0p4N_0p16L". */
+export function printSuffix(nozzleMm: number, layerMm: number): string {
+  const p = (v: number) => String(+v.toFixed(3)).replace('.', 'p');
+  return `_${p(nozzleMm)}N_${p(layerMm)}L`;
+}
+
 /** Binary STL of one or more parts (normals computed per facet). */
 export function toStl(parts: Part[], header = 'GPX3DP'): Uint8Array {
   const nt = parts.reduce((s, p) => s + p.indices.length / 3, 0);
