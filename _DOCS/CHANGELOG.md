@@ -2,6 +2,11 @@
 
 Append-only. Newest first. Never edit or remove old entries.
 
+## 2026-10-23 — UI feedback layer on the dev server
+
+- Kiran wanted to give live feedback on elements and copy in the browser pane. Built a reusable tool, `~/.claude/skills/ui-feedback/` (a page overlay plus a dev-only Vite plugin), with GPX3DP as the first user.
+- `vite.config.ts` loads the plugin from the home folder when it exists; it is dev-only (`apply: 'serve'`) and skipped where it isn't installed (CI, other machines). The live site is unchanged.
+
 ## 2026-10-23 — Live print rating while scaling the label
 
 - Kiran asked how dragging below the minimum size is handled. Before this: only a 2 to 40 mm clamp on release, and the print check said Too fine after the rebuild.
