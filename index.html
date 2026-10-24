@@ -109,6 +109,17 @@
             <p class="muted small" id="smooth-hint"></p>
             <label class="row">Vertical exaggeration <input type="range" data-k="exaggeration" min="1" max="10" step="0.5" /><output data-o="exaggeration"></output>×</label>
             <p class="muted small">Stretches every height by the same factor. Only for very large, flat-looking areas: the climbs will look steeper than they were.</p>
+            <div class="exag-hint" id="exag-hint" hidden>
+              <p class="small"><span id="exag-text"></span> <button type="button" class="ghost" id="exag-use"></button></p>
+              <p class="muted small">
+                Based on the map's scale. Small-scale terrain models are usually exaggerated
+                (<a href="https://terrainmodels.ethz.ch/characteristics/exaggeration/" target="_blank" rel="noopener">ETH Zurich terrain models</a>,
+                <a href="https://en.wikipedia.org/wiki/Vertical_exaggeration" target="_blank" rel="noopener">Wikipedia</a>).
+                The suggestion keeps the relief under 15 mm.
+                Some cartographers argue any exaggeration falsifies the landscape:
+                <a href="https://mountaincartography.icaci.org/publications/papers/papers_bohinj_06/21_Raeber.pdf" target="_blank" rel="noopener">Räber (ICA)</a>.
+              </p>
+            </div>
           </details>
         </section>
 
@@ -125,6 +136,7 @@
 
         <section class="card">
           <h2>6 · Water</h2>
+          <h3 class="sub">Lakes and sea</h3>
           <label class="row">Surface
             <select data-k="waterSurface">
               <option value="off">Off (raw terrain)</option>
@@ -135,10 +147,25 @@
           </label>
           <div class="water-opts">
             <div class="row lines-only">Line spacing <input type="number" data-k="waterLineSpacingMm" min="0.6" max="5" step="0.1" /> mm</div>
+            <div class="row parallel-only">Line angle <input type="number" data-k="waterLineAngleDeg" min="0" max="179" step="15" /> ° from east-west</div>
             <div class="row lines-only">Line width <input type="number" data-k="waterLineWidthMm" min="0.2" max="2" step="0.05" /> depth <input type="number" data-k="waterLineDepthMm" min="0.2" max="1.5" step="0.1" /> mm</div>
-            <div class="row"><label><input type="checkbox" data-k="rivers" /> Include rivers</label> <input type="number" data-k="riverWidthMm" min="0.3" max="3" step="0.1" /> mm</div>
             <div class="row color-row"><label><input type="checkbox" data-k="waterOwnColor" /> Own color</label><input type="color" data-color="water" /></div>
           </div>
+          <h3 class="sub">Rivers</h3>
+          <label class="row">Style
+            <select data-k="riverStyle">
+              <option value="off">Off</option>
+              <option value="groove">Groove (a channel, follows the terrain)</option>
+              <option value="color">Water color (flush, follows the terrain)</option>
+            </select>
+          </label>
+          <div class="river-opts">
+            <div class="row color-only color-row">Water color <input type="color" data-color="water" /></div>
+            <div class="row groove-only">Groove depth <input type="number" data-k="riverDepthMm" min="0.2" max="1.5" step="0.1" /> mm</div>
+            <div class="row"><label><input type="checkbox" data-k="rivers" /> Include narrow rivers</label> <input type="number" data-k="riverWidthMm" min="0.3" max="3" step="0.1" /> mm wide</div>
+            <p class="muted small">Wide rivers (mapped as areas) are always included. Narrow ones are lines in the map data, drawn at the width you set.</p>
+          </div>
+          <p id="river-note" class="note"></p>
         </section>
 
         <section class="card">
@@ -177,9 +204,66 @@
           </div>
         </section>
 
+        <section class="card">
+          <h2>8 · Underside label</h2>
+          <p class="muted small">Text pressed into the bottom of the print. Check it with Underside in the 3D preview.</p>
+          <label class="row label-text">Text <textarea data-k="labelText" rows="2" placeholder="Ride name"></textarea></label>
+          <div class="row wrap">
+            <label><input type="checkbox" data-k="labelStats" /> Ride stats</label>
+            <label><input type="checkbox" data-k="labelExag" /> Vertical exaggeration</label>
+          </div>
+          <label class="row">Font <select data-k="labelFont" id="label-font"></select></label>
+          <p class="small" id="label-preview"></p>
+          <label class="row">Size <input type="number" data-k="labelSizeMm" min="2" max="40" step="0.5" /> mm letter height</label>
+          <p class="small" id="label-print"></p>
+          <label class="row">Depth <input type="number" data-k="labelDepthMm" min="0.2" max="2" step="0.1" /> mm</label>
+          <p class="muted small">Position as read from below. Drag the box in the Underside view, or set an edge and a gap.</p>
+          <div class="row">
+            <span>Across</span>
+            <select data-k="labelEdgeX">
+              <option value="left">From left</option>
+              <option value="center">Centered</option>
+              <option value="right">From right</option>
+            </select>
+            <input type="number" data-k="labelOffX" step="0.5" /> mm
+          </div>
+          <div class="row">
+            <span>Up</span>
+            <select data-k="labelEdgeY">
+              <option value="bottom">From bottom</option>
+              <option value="middle">Centered</option>
+              <option value="top">From top</option>
+            </select>
+            <input type="number" data-k="labelOffY" step="0.5" /> mm
+          </div>
+          <div class="row">
+            <button type="button" class="ghost" id="label-center">Center</button>
+          </div>
+          <label class="row">Align
+            <select data-k="labelAlign">
+              <option value="auto">Auto (follows Across)</option>
+              <option value="left">Left</option>
+              <option value="center">Center</option>
+              <option value="right">Right</option>
+            </select>
+          </label>
+          <p class="note" id="label-note"></p>
+          <details class="tips">
+            <summary>Tips for a clean deboss</summary>
+            <ul class="small">
+              <li><b>Grooves at least 2 nozzle widths wide.</b> The letters are gaps in the first layers, and first-layer squish closes narrow ones. The readout above measures your text.</li>
+              <li><b>Turn on elephant foot compensation</b> in the slicer (about 0.1 to 0.2 mm). Without it the first layer spreads into the letters.</li>
+              <li><b>A smooth plate</b> gives crisp, glossy text. A textured plate makes it harder to read.</li>
+              <li><b>3 or 4 layers deep</b> reads well. Deeper only adds shadow, and the top of each letter is bridged.</li>
+              <li><b>Bold, simple fonts.</b> For a long name, pick a condensed font rather than a smaller size.</li>
+              <li><b>For contrast</b>, rub paint or a paint marker into the letters, then wipe the surface clean.</li>
+            </ul>
+          </details>
+        </section>
+
         </div>
         <section class="card export">
-          <h2>8 · Export</h2>
+          <h2>9 · Export</h2>
           <label class="row">Name <input type="text" data-k="title" placeholder="Model name" /></label>
           <div class="row">
             <button id="generate" type="button" class="primary">Generate model</button>
@@ -201,7 +285,13 @@
           <div id="progress" class="progress" hidden><div class="bar"></div><span></span></div>
         </div>
         <div class="pane" id="map"></div>
-        <div class="pane" id="three" hidden><div id="dims" class="dims"></div></div>
+        <div class="pane" id="three" hidden>
+          <div id="dims" class="dims"></div>
+          <div class="view-toggle seg-buttons">
+            <button type="button" data-view="top" class="active">Top</button>
+            <button type="button" data-view="bottom">Underside</button>
+          </div>
+        </div>
         <div id="toast" class="toast" hidden></div>
       </section>
     </main>

@@ -1,4 +1,5 @@
 import type { CropSuggestion } from '../core/crop';
+import type { LabelSpec } from '../core/label';
 import type { MeshReport } from '../core/validate';
 import type { MarkerPin, ModelSettings, PartName } from '../core/model';
 import type { Bounds, Edge } from '../core/project';
@@ -17,6 +18,10 @@ export interface BuildRequest {
   /** route polylines in print mm (x,y interleaved) */
   routeLines: Float64Array[];
   markers: MarkerPin[];
+  /** text debossed into the underside, or null */
+  label: LabelSpec | null;
+  /** label font id (src/fonts.ts), default inter */
+  labelFont?: string;
 }
 
 export interface ExportRequest {
@@ -46,6 +51,8 @@ export interface ParsedLeg {
   lon: Float64Array;
   waypoints: Waypoint[];
   spikesRemoved: number;
+  /** climbing from the file's elevations, m; null without elevations */
+  climbM: number | null;
 }
 
 export interface PartMesh {
@@ -73,6 +80,8 @@ export type FromWorker =
       /** tighter crop (print mm in this build's frame) with more relief, when this one is flat */
       crop: CropSuggestion | null;
       warnings: string[];
+      /** underside label as built: depth (0 = none) and whether it was shrunk to fit */
+      label: { depthMm: number; shrunk: boolean; dropped: string[]; box: [number, number, number, number] | null; strokeMm: number; wallMm: number | null };
       ms: number;
     }
   | { type: 'exported'; id: number; files: { name: string; data: Uint8Array }[] }

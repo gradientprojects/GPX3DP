@@ -10,13 +10,15 @@ Everything runs in your browser. Your GPX files are never uploaded. The only dow
 
 - **Load rides:** drop in one or more GPX files (Strava exports work). Multi-day rides are chained automatically by matching each file's end to the next file's start, and you can drag to reorder them. Isolated GPS spikes are removed.
 - **Crop and size:** drag a rectangle on the map, pick your printer (or enter a custom plate), and set the print width or height in mm. The scale ("1 mm = X km") is shown, in km or mi.
-- **True to scale:** heights aren't exaggerated unless you ask (Terrain > Advanced). If a big area comes out flat, **Crop to the mountains** finds a tighter crop over the climbs the ride crosses.
+- **True to scale:** heights aren't exaggerated unless you ask (Terrain > Advanced). There, a suggested factor for the map's scale is shown with sources, and you choose whether to use it. If a big area comes out flat, **Crop to the mountains** finds a tighter crop over the climbs the ride crosses.
 - **Printer-aware:** set your nozzle and layer height. Smoothing follows the nozzle, and route, marker and color-layer heights round to whole layers.
 - **Choose the look:**
   - Route: **raised** (stands proud) or **flush** (level with the surface, color only), with width and height in mm. These sizes stay the same however big the print is.
-  - Water (lakes, sea, optional rivers): **flat**, **waterlines** (engraved lines that follow the shore) or **parallel lines**.
+  - Lakes and sea: **flat**, **waterlines** (engraved lines that follow the shore) or **parallel lines**.
+  - Rivers, set separately: a **groove** cut into the terrain, or **flush in the water color**. Either way they follow the terrain downhill. Narrow rivers can be added at a width you choose.
   - Markers: start, finish, leg joins, GPX waypoints and pins you click onto the map. Pick a shape for each kind (circle, square, triangle, diamond). They are flat-topped and stand a set height above the route, in the route's color by default.
   - Each element can print in the terrain's color or in **its own color** on a multi-color printer.
+- **Underside label:** text pressed into the bottom, such as the ride's name, plus optional ride stats (total distance and climbing) and the vertical exaggeration. Pick one of six bold fonts and set the letter size and depth. A print check measures the thinnest strokes against your nozzle and suggests a size if they'd close up. Place it by dragging and scaling its box in the preview's Underside view, or by an edge and a gap in mm, or click Center. It's mirrored, so it reads correctly when you turn the print over.
 - **Export:**
   - **3MF** with named parts (`terrain`, `route`, `water`, `markers`), each pre-assigned to its own filament. Pick the slicer so the parts load as one object:
     - *Bambu Studio / OrcaSlicer* (Bambu's `model_settings.config`)

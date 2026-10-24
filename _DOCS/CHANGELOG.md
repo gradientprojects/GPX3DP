@@ -2,6 +2,69 @@
 
 Append-only. Newest first. Never edit or remove old entries.
 
+## 2026-10-23 — Rivers separate from lakes, suggested exaggeration
+
+- Kiran: "do 1, 2, 4, hold on 3". Tiled printing is on hold.
+- Rivers (from 2026-10-22: toggle rivers and lakes separately, allow a grooved river):
+  - Decided in planning (approved by Kiran):
+    - wide rivers mapped as areas count as rivers;
+    - river styles are Off / Groove (default) / Water color;
+    - narrow river lines stay opt-in.
+  - The water mask now has lake and river codes. Only lakes are flattened; rivers follow the terrain downhill.
+  - Groove depth is a setting (0.6 mm, rounded to layers). Water color falls back to Groove on single-color printers.
+  - Bug while building: the new level code broke every mesh until `NUM_CODES` in `mesh.ts` went from 6 to 7.
+  - Side effect caught by the label test: the groove raised the color layer to 0.8 mm on every model. Now it does so only when grooved rivers exist.
+  - Tests: 36 river combinations, groove depth and downhill, lakes still flat. Death Ride with live tiles: both styles manifold, also in PrusaSlicer.
+- Suggested exaggeration (from 2026-10-22):
+  - A hint with a **Use** button under Terrain > Advanced, using the rule agreed in planning. It is never applied by itself.
+  - Links to ETH, Wikipedia and Räber.
+  - The 3MF description states the factor when it isn't 1x.
+  - Death Ride 1.5x, SRMR 6x.
+
+## 2026-10-23 — No automatic jump to the 3D preview
+
+- Kiran (from 2026-10-22): the view should be the user's choice. Builds no longer switch to the 3D preview. A dot on the tab shows that a new model is ready while the map is showing.
+- Kiran: next, lakes vs rivers with grooved rivers, and the suggested exaggeration. Tiled printing is on hold.
+
+## 2026-10-23 — Label fonts and print check
+
+- Kiran: offer font selection and sizing tips for good deboss prints.
+- Six bold fonts, each loaded only when picked: Inter, Atkinson Hyperlegible, Nunito ExtraBold, Barlow Condensed, Roboto Slab, JetBrains Mono. The card preview shows the chosen font.
+- Print check replaces the "letters under 10x the nozzle" warning. Letter height was the wrong measure: what matters is the width of the strokes (grooves that first-layer squish closes) and of the plastic between them.
+  - Measured from the traced bitmap: Good, Tight or Too fine, which limit applies, and the size that reaches Good.
+  - First version counted ridge pixels; sharp notches (where a bowl meets a stem) gave false 0.05 mm walls. Switched to area-weighted local thickness.
+- Collapsed tips list: elephant foot compensation, smooth plate, depth, font choice, paint fill.
+
+## 2026-10-23 — Underside label: drag, scale, edge offsets
+
+- Kiran: drag and scale a bounding box of the text, center it if wanted, or set it as an offset from chosen edges, handled per axis.
+- Position changed from X/Y % sliders to an edge plus a gap in mm per axis (from left / centered / from right, from bottom / centered / from top). Old `labelX` / `labelY` in shared URLs are ignored.
+- Align gains **Auto** (the new default), which follows the Across edge.
+- Center button. In the Underside view a dashed box can be dragged and scaled; on release each axis snaps to centered (within 3 mm) or the nearer edge.
+- Bug found while testing in the browser: a 5 mm centered Death Ride label left 3 open edges. Earcut had run a hole bridge exactly through a ring vertex (a T-junction), which `fixSlivers` doesn't see.
+  - Fix: `fixTJunctions` splits any edge used once that isn't on the face boundary.
+  - Regression test added; it fails without the fix.
+  - A sweep of 12 sizes x 4 placements on the real print size is all manifold.
+
+## 2026-10-22 — Underside label and climbing
+
+- Kiran: a debossed label on the underside, with typed text and optional ride stats (all files combined) and vertical exaggeration lines. Size, position and alignment adjustable, and shown in the preview.
+- Built with opentype.js (Inter Bold) and earcut. Text is rasterized and traced into clean rings, and the flat bottom gets a pocket. Mirrored so it reads from below. Depth is capped under the color layers.
+- GPX `<ele>` is now read, for climbing (2 m hysteresis). Death Ride: 12,966 ft, against a published ~15,000 ft; Kiran to compare with Strava.
+- 3D preview gets a Top / Underside toggle.
+- Fixed while building:
+  - earcut zero-area slivers (`fixSlivers`);
+  - float noise on the real-size model, fixed by triangulating in exact grid units (18 flipped edges, build 13 s down to 4.6 s);
+  - emoji rendered as empty boxes, now left out with a note;
+  - text invisible in the preview, fixed with a tilted camera, a light from below and darker pocket shading.
+- Exaggeration references settled: link ETH Zurich and Wikipedia, plus Räber (ICA) as the counterpoint; not Esri. The term is "Vertical exaggeration".
+
+## 2026-10-22 — Live on Pages, parallel water line angle
+
+- Pushed and enabled GitHub Pages (built by Actions). Live at https://gradientprojects.github.io/GPX3DP/.
+- Kiran: choose the angle of the parallel water lines. New `waterLineAngleDeg` (default 0 = east-west, as before), shown only for Parallel lines. Mesh tests at 30, 45, 90 and 135 degrees.
+- Kiran asked for, to plan next: no automatic jump to the 3D preview; lakes and rivers styled separately, with a grooved river option; tiled printing.
+
 ## 2026-10-22 — Smooth outlines, layer height, crop to the mountains, download errors
 
 - Kiran picked from the "what next" list: smooth outlines, layer height, help for flat areas, network errors. Desktop only. Deferred: spur trimming, plinth text, README/link polish.

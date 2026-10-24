@@ -5,7 +5,9 @@ import { parseGpx } from '../core/gpx';
 import { buildModel, type ModelInput, type Part } from '../core/model';
 import { removeSpikes } from '../core/spike';
 import { validateMesh } from '../core/validate';
-import { buildFromRequest } from './build';
+import { parse as parseFont } from 'opentype.js';
+import { labelFont } from '../fonts';
+import { buildFromRequest, setLabelFont } from './build';
 import type { BuildRequest, FromWorker, ParsedLeg, ToWorker } from './messages';
 import { TileError } from './tiles';
 
@@ -15,8 +17,30 @@ let lastInput: ModelInput | null = null;
 let lastBuild: BuildRequest | null = null;
 let lastParts: Part[] = [];
 
+const fontLoads = new Map<string, Promise<void>>();
+/** a label font, fetched the first time a build uses it */
+const loadFont = (id: string) => {
+  const f = labelFont(id);
+  let p = fontLoads.get(f.id);
+  if (!p) {
+    p = fetch(f.url)
+      .then((r) => {
+        if (!r.ok) throw new Error(`label font: HTTP ${r.status}`);
+        return r.arrayBuffer();
+      })
+      .then((b) => setLabelFont(parseFont(b), f.id))
+      .catch((e) => {
+        fontLoads.delete(f.id);
+        throw e;
+      });
+    fontLoads.set(f.id, p);
+  }
+  return p;
+};
+
 async function build(req: BuildRequest) {
   const t0 = performance.now();
+  if (req.label) await loadFont((req.labelFont = labelFont(req.labelFont ?? 'inter').id));
   const r = await buildFromRequest(req, (stage, done, total) => post({ type: 'progress', id: req.id, stage, done, total }));
   lastInput = r.input;
   lastBuild = req;
@@ -44,6 +68,7 @@ async function build(req: BuildRequest) {
       tiles: r.tiles,
       crop: r.crop,
       warnings: r.warnings,
+      label: r.label,
       ms: performance.now() - t0,
     },
     meshes.flatMap((m) => [m.positions.buffer, m.indices.buffer]),
@@ -66,7 +91,7 @@ self.onmessage = async (ev: MessageEvent<ToWorker>) => {
           return;
         }
         const s = removeSpikes(g.lat, g.lon, m.spikeKm);
-        legs.push({ file: f.name, name: g.name, lat: s.lat, lon: s.lon, waypoints: g.waypoints, spikesRemoved: s.removed });
+        legs.push({ file: f.name, name: g.name, lat: s.lat, lon: s.lon, waypoints: g.waypoints, spikesRemoved: s.removed, climbM: g.climbM });
       });
       post({ type: 'parsed', id: m.id, legs, errors }, legs.flatMap((l) => [l.lat.buffer, l.lon.buffer]));
     } else if (m.type === 'build') {

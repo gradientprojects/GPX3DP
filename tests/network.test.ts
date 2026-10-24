@@ -19,6 +19,7 @@ const req = (west: number, waterSurface: 'off' | 'flat'): BuildRequest => ({
   model: { ...DEFAULT_MODEL, waterSurface, markersOn: false },
   routeLines: [],
   markers: [],
+  label: null,
 });
 
 afterEach(() => vi.unstubAllGlobals());

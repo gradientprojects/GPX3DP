@@ -164,6 +164,68 @@ describe('buildModel', () => {
       }
     });
 
+  for (const waterLineAngleDeg of [30, 45, 90, 135])
+    it(`valid parts: parallel water lines at ${waterLineAngleDeg} deg`, () => {
+      const s = { ...DEFAULT_MODEL, waterSurface: 'parallel' as const, waterOwnColor: true, waterLineAngleDeg };
+      const input = { W, H, cellMm: cell, elevation: terrain(W, H, 7), mmPerGroundM: 0.004, routeLines, waterMask: water, markers: [] };
+      for (const p of buildModel(input, s).parts) {
+        expect({ part: p.name, ...validateMesh(p.positions, p.indices) }).toMatchObject({ part: p.name, ok: true });
+        expect({ part: p.name, ...foldCheck(p.positions, p.indices) }).toMatchObject({ ok: true });
+      }
+    });
+
+  // a river (code 2) winding in from the west edge, across the route, into the lake (code 1)
+  const withRiver = water.slice();
+  for (let x = 0; x < 36; x++) {
+    const yc = 20 + 6 * Math.sin(x / 6);
+    for (let y = Math.floor(yc - 1.5); y <= Math.ceil(yc + 1.5); y++) if (y >= 0 && y < H && !water[y * W + x]) withRiver[y * W + x] = 2;
+  }
+  for (const riverStyle of ['groove', 'color'] as const)
+    for (const waterSurface of ['off', 'flat', 'waterlines'] as const)
+      for (const waterOwnColor of [false, true])
+        for (const [routeStyle, riverDepthMm] of [['raised', 0.6], ['flush', 0.4], ['raised', 0.3]] as const)
+          it(`valid parts with a river: ${JSON.stringify({ riverStyle, waterSurface, waterOwnColor, routeStyle, riverDepthMm })}`, () => {
+            const s = { ...DEFAULT_MODEL, riverStyle, waterSurface, waterOwnColor, routeStyle, riverDepthMm, markersOn: true };
+            const { parts } = buildModel(
+              { W, H, cellMm: cell, elevation: terrain(W, H, 7), mmPerGroundM: 0.004, routeLines, waterMask: withRiver, markers: [{ xMm: 5, yMm: 5, kind: 'start' }] },
+              s,
+            );
+            if (riverStyle === 'color') expect(parts.map((p) => p.name)).toContain('water');
+            for (const p of parts) {
+              expect({ part: p.name, ...validateMesh(p.positions, p.indices) }).toMatchObject({ part: p.name, ok: true });
+              expect({ part: p.name, ...foldCheck(p.positions, p.indices) }).toMatchObject({ ok: true });
+            }
+          });
+
+  it('a grooved river follows the terrain downhill; lakes are still flat', () => {
+    // terrain falling to the east; a river along x, a lake at the east end
+    const W = 80, H = 30, cell = 0.5;
+    const E = new Float32Array((W + 1) * (H + 1));
+    for (let y = 0; y <= H; y++) for (let x = 0; x <= W; x++) E[y * (W + 1) + x] = 2000 - x * 10 + y * 2;
+    const wm = new Uint8Array(W * H);
+    for (let y = 12; y < 18; y++) for (let x = 0; x < W; x++) wm[y * W + x] = x >= 60 ? 1 : 2;
+    const s = { ...DEFAULT_MODEL, smoothMm: 0, waterSurface: 'flat' as const, riverStyle: 'groove' as const, riverDepthMm: 0.6, markersOn: false };
+    const { parts } = buildModel({ W, H, cellMm: cell, elevation: E, mmPerGroundM: 0.005, routeLines: [], waterMask: wm, markers: [] }, s);
+    const t = parts[0];
+    expect(validateMesh(t.positions, t.indices).ok).toBe(true);
+    // highest vertex at a corner on the river's middle line (corner row 15)
+    const zAt = (xMm: number, yMm: number) => {
+      let best = -Infinity;
+      for (let i = 0; i < t.positions.length; i += 3)
+        if (Math.abs(t.positions[i] - xMm) < 1e-3 && Math.abs(t.positions[i + 1] - yMm) < 1e-3) best = Math.max(best, t.positions[i + 2]);
+      return best;
+    };
+    const base = 3;
+    const terrainZ = (x: number, y: number) => base + (E[y * (W + 1) + x] - E[W]) * 0.005;
+    // river: exactly the groove depth below the terrain, and falling with it
+    for (const x of [5, 20, 40]) expect(zAt(x * cell, 15 * cell)).toBeCloseTo(terrainZ(x, 15) - 0.6, 4);
+    expect(zAt(5 * cell, 15 * cell)).toBeGreaterThan(zAt(40 * cell, 15 * cell) + 1);
+    // lake: one level
+    const lake = [65, 70, 75].map((x) => zAt(x * cell, 15 * cell));
+    expect(lake[0]).toBeCloseTo(lake[1], 5);
+    expect(lake[1]).toBeCloseTo(lake[2], 5);
+  });
+
   it('raised route is the terrain face under it, extruded straight up in z', () => {
     // terrain tilted across the route (rises with y); route runs along x
     const W = 80, H = 40, cell = 0.25;

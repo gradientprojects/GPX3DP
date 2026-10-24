@@ -1,4 +1,5 @@
 import type { Units } from './core/geo';
+import type { LabelAlign, LabelEdgeX, LabelEdgeY } from './core/label';
 import { DEFAULT_MODEL, type ModelSettings } from './core/model';
 import type { Bounds, Edge } from './core/project';
 
@@ -32,6 +33,17 @@ export interface AppSettings extends ModelSettings {
   /** manual pins, [lat, lon] */
   pins: [number, number][];
   colors: PartColors;
+  /** underside label: typed lines, plus optional stats and exaggeration lines */
+  labelText: string;
+  labelStats: boolean;
+  labelExag: boolean;
+  labelFont: string;
+  labelSizeMm: number;
+  labelEdgeX: LabelEdgeX;
+  labelOffX: number;
+  labelEdgeY: LabelEdgeY;
+  labelOffY: number;
+  labelAlign: LabelAlign;
 }
 
 export const DEFAULTS: AppSettings = {
@@ -59,6 +71,16 @@ export const DEFAULTS: AppSettings = {
   pinStartFinish: true,
   pins: [],
   colors: { terrain: '#d9d4c7', route: '#d23a2a', water: '#3a78c2', markers: '#f2b705' },
+  labelText: '',
+  labelStats: false,
+  labelExag: false,
+  labelFont: 'inter',
+  labelSizeMm: 6,
+  labelEdgeX: 'center',
+  labelOffX: 0,
+  labelEdgeY: 'middle',
+  labelOffY: 0,
+  labelAlign: 'auto',
 };
 
 /**
@@ -82,6 +104,8 @@ export function roundToLayers<T extends ModelSettings>(m: T, layer: number): T {
     markerHeightMm: r(m.markerHeightMm),
     colorDepthMm: r(m.colorDepthMm),
     waterLineDepthMm: r(m.waterLineDepthMm),
+    riverDepthMm: r(m.riverDepthMm),
+    labelDepthMm: r(m.labelDepthMm),
   };
 }
 

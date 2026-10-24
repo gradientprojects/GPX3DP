@@ -2,7 +2,7 @@
 
 Living design document. Current truth only; history goes in `CHANGELOG.md`.
 
-**Last updated:** 2026-10-22
+**Last updated:** 2026-10-23
 
 ## Goal
 
@@ -12,7 +12,8 @@ A free public static web app on GitHub Pages. It turns one or more GPX files int
 
 ## Current state
 
-- 2026-10-22: Milestones 1 to 6 are built: GPX load, ordering, crop, elevation, terrain, route, water, markers, 3MF/STL, 3D preview, URL hash, smooth outlines, layer rounding, crop suggestion, download errors. 114 unit tests. Not committed or deployed yet.
+- 2026-10-22: Milestones 1 to 6 are built: GPX load, ordering, crop, elevation, terrain, route, water, markers, 3MF/STL, 3D preview, URL hash, smooth outlines, layer rounding, crop suggestion, download errors. 118 unit tests.
+- 2026-10-22: committed, pushed and live at https://gradientprojects.github.io/GPX3DP/ (Pages builds from Actions on every push to `main`).
 - Real SRMR (6 files, 570,694 points):
   - parsed in 0.25 s; auto-order seams all under 0.7 km;
   - full build in 1.9 s at 200 mm (z8, 15 tiles, ~0.8M triangles); 3MF in 0.9 s, 6.5 MB.
@@ -20,6 +21,9 @@ A free public static web app on GitHub Pages. It turns one or more GPX files int
   - Bambu Studio: one object, 4 named parts, slots 1 to 4, zero mesh repairs.
   - PrusaSlicer: same, and sliced to G-code using all 4 filaments.
 - Small ride (~13 km area): z13, 25 tiles, 2.8 s.
+- 2026-10-23: underside label built (not committed yet). 133 unit tests.
+  - Death Ride (200 mm, 3 lines): builds in about 0.5 s with the label, manifold.
+  - PrusaSlicer CLI: `--info` reports manifold with 2 parts; the first SLA layers show the text as gaps.
 - Not verified yet: OrcaSlicer (its CLI segfaults on this Mac, even on `--help`) and slicing in the Bambu GUI. Kiran to check both in the apps.
 
 ## Constraints
@@ -37,6 +41,7 @@ A free public static web app on GitHub Pages. It turns one or more GPX files int
 ### 1. GPX input
 - Multiple files by drag-drop or picker. Fast scan of `trkpt` lat/lon (and optional ele) and `wpt`.
 - Don't rely on `<time>`; Strava exports often lack it.
+- Climbing per file from `<ele>`: the sum of rises, with a 2 m hysteresis to ignore GPS jitter (`climbOf` in `gpx.ts`). Files without elevations give none. Death Ride: 3,952 m (12,966 ft); the published figure is about 15,000 ft, so this may read low against Strava. Kiran to compare.
 - Auto-order legs by matching ends to starts (haversine) and minimizing the total seam distance. Exact search for 8 legs or fewer, greedy beyond that. The order is shown and can be reordered by drag.
 - Spike filter: drop isolated A -> far -> A jumps of more than N km. Keep one-way gaps (dropouts), which print as straight lines.
 - Simplify each leg to about 0.1 mm at print scale.
@@ -67,11 +72,26 @@ A free public static web app on GitHub Pages. It turns one or more GPX files int
   - Offline: the message says so, and the model builds by itself when the connection comes back.
 
 ### 4. Water
-- Source: OpenFreeMap vector tiles, `water` polygons, plus optional `waterway` lines at a width setting. Rasterized to a water mask on the grid.
-- Surface setting: `off | flat | waterlines | parallel lines`.
+- Source: OpenFreeMap vector tiles, rasterized to a water mask on the grid with two codes:
+  - lake (1): `water` polygons (lakes, ponds, reservoirs, docks, sea);
+  - river (2): river-class `water` polygons (wide rivers) plus, optionally, `waterway` river/canal lines at a width setting.
+  - Where the two overlap, lakes win.
+- Wide rivers count as rivers, not lakes: they run downhill too.
+- **Lakes and sea** and **Rivers** are set separately in the Water card.
+- Rivers (`riverStyle`):
+  - **Off.**
+  - **Groove** (default): a channel `riverDepthMm` (default 0.6, rounded to layers) below the terrain, in the terrain color.
+  - **Water color**: flush with the surface, in the water part. It needs a multi-color printer, otherwise it falls back to Groove with a note.
+  - Rivers are never flattened and get no texture: both styles follow the terrain downhill.
+  - "Include narrow rivers" (off by default) adds the waterway lines. A note warns when they are under 2 nozzle widths.
+- Mesh details:
+  - The groove and the water lines are two engraved levels. Deeper gets the lower level code (`engraved` in `model.ts`), shared when the depths are equal.
+  - The color layer depth is at least the groove + 0.2 mm, but only when there are grooved river cells. Without rivers nothing changes.
+- Death Ride at 200 mm, narrow rivers on at 1 mm: 7,576 river cells and 4,378 lake cells. Both styles are manifold; PrusaSlicer `--info` says manifold. With Water color, PrusaSlicer counts each separate river piece as its own shell.
+- Lakes and sea surface setting: `off | flat | waterlines | parallel lines`.
   - Anything except off flattens the water to the lake level (a low percentile of the elevation under each water body).
   - Waterlines: engraved lines following the shoreline at a fixed spacing, from a distance transform of the mask. This is the default texture.
-  - Parallel lines: straight engraved lines.
+  - Parallel lines: straight engraved lines at a set angle (degrees counter-clockwise from east-west, default 0).
   - Spacing, line width and depth are absolute mm.
 - Water color is set separately (same as terrain / own color), so a textured water surface can stay in the terrain material on a multi-color printer.
 
@@ -105,6 +125,12 @@ A free public static web app on GitHub Pages. It turns one or more GPX files int
 - Terrain z = base_mm + (elev - elev_min) * vertical_scale, where vertical_scale = exaggeration / horizontal_scale.
   - Defaults: true scale (exaggeration 1x), base 3 mm.
   - Exaggeration (1 to 10x) sits under a collapsed **Advanced** in the Terrain card. The point of the print is the real ride, so heights are true to scale unless the user opts in.
+  - **Suggested exaggeration** (`suggestExaggeration` in `src/core/exaggeration.ts`), shown under the slider after each build with a **Use Nx** button. It is never applied by itself.
+    - Rule: max(1, (S / 50,000)^0.6) for a scale of 1:S. It fits ETH's ranges and Hubbard's 1:250,000 Knoxville sheet at 3:1.
+    - Then it is capped so the relief stays at or under 15 mm (mountainous areas need less), and rounded down to 1, 1.5, 2, 3, 4, 5, 6, 8 or 10.
+    - Death Ride 1:219,000 gives 1.5x (12.2 mm). SRMR 1:2,528,000 gives 6x.
+    - Links: ETH Zurich terrain models, Wikipedia, and Räber (ICA) as the counterpoint (Imhof: exaggeration is "a falsification"). Not Esri.
+  - Exports state the factor when it isn't 1x: "Vertical exaggeration Nx." is added to the 3MF description.
   - When relief comes out under 3 mm (`FLAT_RELIEF_MM`), a note suggests a tighter crop, a bigger print, or Advanced exaggeration (SRMR at 200 mm: 1.9 mm). Buttons under it:
     - **Crop to the mountains (about X mm relief)**, from `suggestCrop` in `src/core/crop.ts`. It tries windows of 1/2, 1/3 and 1/4 of the crop (same aspect), slid in quarter steps. A window must hold at least its own width of route. It takes the largest window reaching 8 mm at the same print size, else the one with the most relief. It's only offered if that beats the current relief by half again and 1 mm. SRMR: 1.9 → 5.8 mm.
     - **Bigger print (fit to plate)**, when the print isn't at the plate's maximum.
@@ -117,6 +143,48 @@ A free public static web app on GitHub Pages. It turns one or more GPX files int
   - Diagonal route edge: within 0.1 cell of the true edge (the staircase was up to 0.68 cell off).
 - Feature heights are rounded to whole layers before building: route height, marker height, color layer and water line depth (at least 1 layer). The inputs keep what was typed; a readout under Layer height shows the result.
 - Validator: every undirected edge is used exactly twice in opposite directions, signed volume > 0, no degenerate triangles. It runs in the tests.
+
+### 7b. Underside label
+- Text debossed into the terrain part's flat bottom. Off until there is a line of text.
+- Lines:
+  - the typed text (several lines; the placeholder is the ride name);
+  - optional **Ride stats**: total distance of all files and total climbing, in km/m or mi/ft;
+  - optional **Vertical exaggeration**: "Vertical exaggeration Nx", with "(true scale)" at 1x.
+- Fonts (`src/fonts.ts`, `labelFont`, default Inter): bold weights only, since thin strokes close up.
+  - The six fonts: Inter Bold, Atkinson Hyperlegible Bold (best small), Nunito ExtraBold (rounded), Barlow Condensed Bold (long names), Roboto Slab Bold, JetBrains Mono Bold.
+  - Licences: all OFL except Roboto Slab (Apache-2.0). Packages are fontsource 5.3.0, latin WOFF, 14 to 31 KB each.
+  - The worker fetches each font the first time it's used and parses it with opentype.js. The card's text preview is shown in the chosen font (FontFace API).
+  - Characters a font lacks (emoji) are left out, with a note.
+- Size is the capital-letter height in mm (default 6). Lines are 1.6 x the size apart.
+- Print check, measured from the built text (`thinnestPx` in `label.ts`): an area-weighted local thickness on the 0.05 mm bitmap, 5th percentile. Sharp notches and stroke tips don't count.
+  - Groove: the thinnest letter stroke, which is a gap in the first layers. Wall: the thinnest plastic between strokes or inside counters, up to 2 mm.
+  - **Good** when groove ≥ 2 x nozzle and wall ≥ 1.5 x nozzle. **Tight** at ≥ 1 x for both. **Too fine** below that. The readout names which limit applies.
+  - It suggests the size that reaches Good (widths scale with size, rounded up to 0.5 mm). If the text was shrunk to fit, it suggests fewer lines, a condensed font or a bigger print instead.
+  - Death Ride at 0.4 mm: Inter is Good from 5.5 mm (8 mm: groove 1.22, wall 0.85). Atkinson is Good at 6 mm.
+- A collapsed **Tips for a clean deboss** list covers:
+  - groove width;
+  - elephant foot compensation;
+  - smooth plate;
+  - 3 to 4 layers deep;
+  - bold or condensed fonts;
+  - paint fill for contrast.
+- Placement, per axis as read from below (`labelEdgeX` / `labelOffX`, `labelEdgeY` / `labelOffY`):
+  - From left / right / bottom / top: the gap in mm between that print edge and the same side of the text box.
+  - Centered: the box center's offset from the center line (0 = centered). The **Center** button centers both axes.
+  - Align: **Auto** (default) follows Across: from left gives left-aligned lines, centered gives centered, from right gives right-aligned. Left / center / right override it.
+  - The box stays 3 mm inside the edges, and is shrunk to fit (with a note) if it is too big.
+- The text is mirrored left to right, so it reads correctly when the print is turned over.
+- Depth default 0.6 mm, rounded to whole layers. It is capped at base − color layer − 0.4 mm, so the pocket never reaches a color layer (2.0 mm with the defaults); a note says when it was capped.
+- Geometry (`src/core/label.ts`, `pocketBottom` in `mesh.ts`):
+  - Glyph outlines are rasterized at 0.05 mm, OR'ed, and traced with marching squares into clean rings: letters counter-clockwise, islands clockwise, never touching.
+  - The bottom has five pieces: a strip from the perimeter to a rectangle inset 1.5 mm; that rectangle with the letters cut out; the islands; the letter ceilings at the depth; and the walls.
+  - Faces are triangulated with earcut in exact integer grid units. Two clean-ups follow:
+    - `fixSlivers`: zero-area triangles are flipped with their neighbour.
+    - `fixTJunctions`: a hole bridge running exactly through a vertex is split at that vertex.
+- 3D preview: **Top / Underside** toggle. Underside looks up from below, tilted, with a light from below; the pocket is shaded darker (preview only).
+- Dragging in the Underside view:
+  - A dashed box over the text: drag it to move; drag a corner to scale (aspect kept, opposite corner fixed, size rounded to 0.5 mm, 2 to 40 mm). Orbiting still works outside the box.
+  - Only the box moves during the drag. On release, each axis snaps on its own: to Centered if the box center is within 3 mm of the center line (a dashed guide shows), else to the nearer edge with the gap rounded to 0.5 mm. The fields update and the model rebuilds.
 
 ### 8. Export
 - 3MF (primary): one object whose parts are `terrain`, `route`, `water` and `markers` (own-color elements only), in millimeters.
@@ -138,8 +206,10 @@ A free public static web app on GitHub Pages. It turns one or more GPX files int
   - base, Advanced (smoothing with Auto, exaggeration);
   - route (style, width, height, color);
   - water (surface, texture, color);
-  - markers (sources, shape per kind, size, height above route, color).
+  - markers (sources, shape per kind, size, height above route, color);
+  - underside label (text, stats, exaggeration, font, size with print check, depth, Across / Up, Center, align, tips).
 - 2D map with the route and an editable crop rectangle, and the 3D three.js preview with orbit controls, part colors and dimensions.
+- Builds never switch the view. A build that finishes while the map is showing puts a dot on the **3D preview** tab, cleared when it is opened. Only "Add pins on map" switches (to the map), since you click it.
 - Progress per stage: parsing, tiles N of M, meshing, exporting.
 - Settings, crop and manual markers are stored in the URL hash.
 - Reset to defaults:
@@ -155,7 +225,8 @@ A free public static web app on GitHub Pages. It turns one or more GPX files int
 - Inlay route style was dropped. Flush needs a multi-color printer.
 - Water color is independent of water texture (e.g. textured water in terrain color, red route on AMS).
 - No STEP export: a terrain mesh as STEP would be about 1 GB, slow to import, and has no filament slots.
-- Plinth text is deferred. No crop shapes other than rectangle.
+- Text goes on the underside (debossed), not on a plinth. No crop shapes other than rectangle.
+- Label text is traced from a raster rather than meshed from the font outlines directly: overlapping and touching contours merge cleanly, so the pocket is always a valid set of rings.
 
 - Route rasterizing uses a pure-TS capsule stamp instead of a canvas, so it is deterministic and testable in Node. Water polygons use an even-odd scanline fill, clipped per tile.
 - Legs whose seam is under 2 km are joined into one line. Bigger gaps are left open.
@@ -172,5 +243,5 @@ A free public static web app on GitHub Pages. It turns one or more GPX files int
 - OrcaSlicer: confirm in the app that the Bambu-layout 3MF opens with named parts.
 - Bambu Studio GUI: confirm it slices with the parts on separate filaments.
 - "Crop to the mountains" can pick a window where the route runs along one edge (SRMR does). Prefer windows with the route nearer the middle?
-- Tiled print (split a big print into plate-sized tiles): discussed 2026-10-22, not planned yet.
-- Deferred: trimming short end-of-day spurs from the route itself, plinth text, README screenshot and link-preview polish.
+- On hold (Kiran, 2026-10-23): tiled print. Set an overall size and a maximum tile size; the app scales and splits the print into plate-sized tiles. Open choices: joints, tile labels, markers at seams, export format.
+- Deferred: trimming short end-of-day spurs from the route itself, README screenshot and link-preview polish.

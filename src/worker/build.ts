@@ -1,5 +1,7 @@
 import { FLAT_RELIEF_MM, suggestCrop, type CropSuggestion } from '../core/crop';
+import type { Font } from 'opentype.js';
 import { pxFromMercX, pxFromMercY } from '../core/geo';
+import { layoutLabel } from '../core/label';
 import { buildModel, type ModelInput, type ModelStats, type Part } from '../core/model';
 import { makeFrame } from '../core/project';
 import { chooseZoom, tileCount } from '../core/terrarium';
@@ -19,6 +21,13 @@ export interface BuildResult {
   crop: CropSuggestion | null;
   /** problems that didn't stop the build (e.g. water tiles unavailable) */
   warnings: string[];
+  label: { depthMm: number; shrunk: boolean; dropped: string[]; box: [number, number, number, number] | null; strokeMm: number; wallMm: number | null };
+}
+
+const labelFonts = new Map<string, Font>();
+/** Parsed label fonts by id: the worker loads them with fetch, Node tests read them from node_modules. */
+export function setLabelFont(f: Font, id = 'inter') {
+  labelFonts.set(id, f);
 }
 
 // Elevation and water only depend on the crop and grid, so settings changes reuse them.
@@ -53,7 +62,7 @@ export async function buildFromRequest(req: BuildRequest, progress: Progress): P
 
   let water: Uint8Array | undefined;
   const warnings: string[] = [];
-  if (req.model.waterSurface !== 'off') {
+  if (req.model.waterSurface !== 'off' || req.model.riverStyle !== 'off') {
     const wk = JSON.stringify([ek, req.rivers, req.riverWidthMm]);
     if (wk !== waterKey) {
       const range = chooseZoom(req.bounds, cellGroundM, 14, 48);
@@ -74,6 +83,8 @@ export async function buildFromRequest(req: BuildRequest, progress: Progress): P
   }
 
   progress('Building mesh');
+  const font = labelFonts.get(req.labelFont ?? 'inter');
+  const label = req.label && font ? layoutLabel(font, req.label, W * cell, H * cell) : null;
   const input: ModelInput = {
     W,
     H,
@@ -83,6 +94,7 @@ export async function buildFromRequest(req: BuildRequest, progress: Progress): P
     routeLines: req.routeLines,
     waterMask: water,
     markers: req.markers,
+    label: label ? { rings: label.rings, grid: label.grid } : undefined,
   };
   const { parts, stats } = buildModel(input, req.model);
   // flat at this size: look for a tighter crop over the mountains the ride crosses
@@ -90,5 +102,14 @@ export async function buildFromRequest(req: BuildRequest, progress: Progress): P
     stats.reliefMm < FLAT_RELIEF_MM
       ? suggestCrop(input.elevation, W, H, cell, frame.mmPerGroundM * req.model.exaggeration, req.routeLines)
       : null;
-  return { input, parts, stats, zoom: elevCache.zoom, tiles: elevCache.tiles, crop, warnings };
+  return {
+    input,
+    parts,
+    stats,
+    zoom: elevCache.zoom,
+    tiles: elevCache.tiles,
+    crop,
+    warnings,
+    label: { depthMm: stats.labelDepthMm, shrunk: !!label?.shrunk, dropped: label?.dropped ?? [], box: label?.box ?? null, strokeMm: label?.strokeMm ?? 0, wallMm: label?.wallMm ?? null },
+  };
 }

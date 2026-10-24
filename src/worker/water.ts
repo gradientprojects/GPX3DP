@@ -2,6 +2,7 @@ import { VectorTile } from '@mapbox/vector-tile';
 import { PbfReader } from 'pbf';
 import { MERC_HALF } from '../core/geo';
 import type { PrintFrame } from '../core/project';
+import { WATER_LAKE, WATER_RIVER } from '../core/model';
 import { fillRings, stampPolyline } from '../core/raster';
 import type { TileRange } from '../core/terrarium';
 import { cachedFetch, poolCounting, TileError } from './tiles';
@@ -22,9 +23,12 @@ async function vectorTileUrl(): Promise<string> {
 const SKIP_CLASSES = new Set(['swimming_pool']);
 const RIVER_CLASSES = new Set(['river', 'canal']);
 
+
+
 /**
- * Water cells for the print grid, from OpenFreeMap (OpenMapTiles schema) `water` polygons,
- * plus `waterway` rivers/canals stamped at `riverWidthMm` when `rivers` is on.
+ * Water cells for the print grid, from OpenFreeMap (OpenMapTiles schema): LAKE for `water` polygons (lakes,
+ * ponds, sea...), RIVER for river-class polygons (wide rivers) and, when `rivers` is on, `waterway`
+ * rivers/canals stamped at `riverWidthMm`. Lakes win where the two overlap.
  */
 export async function waterMask(
   frame: PrintFrame,
@@ -41,6 +45,7 @@ export async function waterMask(
     throw new TileError('water', jobsTotal, jobsTotal);
   });
   const mask = new Uint8Array(W * H);
+  const river = new Uint8Array(W * H);
   const n = 2 ** r.z;
   // global tile coordinate -> grid cell units
   const toCellX = (tx: number) => ((tx / n) * 2 * MERC_HALF - MERC_HALF - frame.mx0) * frame.k / cell;
@@ -68,7 +73,7 @@ export async function waterMask(
             });
             return a;
           });
-          fillRings(mask, W, H, rings, clip);
+          fillRings(f.properties.class === 'river' ? river : mask, W, H, rings, clip);
         }
       const ways = tile.layers.waterway;
       if (rivers && ways)
@@ -82,7 +87,7 @@ export async function waterMask(
               a[2 * k] = toCellX(x + p.x / ext);
               a[2 * k + 1] = toCellY(y + p.y / ext);
             });
-            stampPolyline(mask, W, H, a, riverWidthMm / 2 / cell);
+            stampPolyline(river, W, H, a, riverWidthMm / 2 / cell);
           }
         }
     }
@@ -90,5 +95,6 @@ export async function waterMask(
   });
   // a partial water mask would print half a lake, so it's all or nothing
   if (failed) throw new TileError('water', failed, jobs.length);
+  for (let i = 0; i < mask.length; i++) mask[i] = mask[i] ? WATER_LAKE : river[i] ? WATER_RIVER : 0;
   return mask;
 }

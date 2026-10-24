@@ -12,8 +12,11 @@
  * as no 2x2 block has a diagonal (checkerboard) pattern at any level, which `model.ts` cleans up first.
  */
 
+import earcut from 'earcut';
+import { inRing, ringArea } from './label';
+
 export const NONE = 255;
-export const NUM_CODES = 6;
+export const NUM_CODES = 7;
 
 export interface MeshData {
   positions: Float32Array;
@@ -50,6 +53,8 @@ export function buildSlab(
   offset?: Float32Array,
   /** per-cell diagonal: 0 splits on c00-c11, 1 on c10-c01 (parts sharing a surface must pass the same) */
   diag?: Uint8Array,
+  /** text debossed into the flat bottom (needs flatBottom) */
+  pocket?: Pocket,
 ): MeshData {
   const CW = W + 1;
   const nCorners = CW * (H + 1);
@@ -145,7 +150,16 @@ export function buildSlab(
       }
     }
 
-  if (flatBottom) {
+  if (flatBottom && pocket?.rings.length) {
+    const ring: number[] = [];
+    for (let y = 0; y <= H; y++) ring.push(y * CW);
+    for (let x = 1; x <= W; x++) ring.push(H * CW + x);
+    for (let y = H - 1; y >= 0; y--) ring.push(y * CW + W);
+    for (let x = W - 1; x >= 1; x--) ring.push(x);
+    const code = bot[0];
+    const z0 = level(0, code);
+    nv = pocketBottom(pos, idx, nv, ring.map((c) => v(c, code)), [0, H, H + W, 2 * H + W], W * cell, H * cell, z0, pocket);
+  } else if (flatBottom) {
     // Fan from a center vertex to the perimeter, clockwise seen from above (normal -z).
     const center = nv++;
     pos.push3((W * cell) / 2, (H * cell) / 2, level(0, 0));
@@ -159,4 +173,211 @@ export function buildSlab(
   }
 
   return { positions: pos.done(), indices: idx.done() };
+}
+
+export interface Pocket {
+  /** closed rings in mm, ink on the left (CCW around letters, CW around islands); must stay inside the bottom */
+  rings: Float64Array[];
+  /** the grid the ring points lie on (see LabelGeom) */
+  grid: { ox: number; oy: number; step: number };
+  /** how far the letters go up into the bottom, mm */
+  depth: number;
+}
+
+/** keeps the frame strip clear of the label (labels stay 3 mm inside the edge) */
+const POCKET_INSET = 1.5;
+
+/**
+ * Flat bottom with debossed letters. A strip from the perimeter to an inset rectangle (so the perimeter's many
+ * collinear vertices stay exact), the rectangle minus the letters at z0, the islands inside letters at z0, the
+ * letter ceilings at z0 + depth, and walls along every ring. All faces under the part face -z.
+ */
+function pocketBottom(
+  pos: Grow<Float32Array>,
+  idx: Grow<Uint32Array>,
+  nv: number,
+  ringIds: number[],
+  corners: number[],
+  Wmm: number,
+  Hmm: number,
+  z0: number,
+  pocket: Pocket,
+): number {
+  const xy = (id: number): [number, number] => [pos.buf[3 * id], pos.buf[3 * id + 1]];
+  const tri = (a: number, b: number, c: number) => {
+    const [ax, ay] = xy(a), [bx, by] = xy(b), [cx, cy] = xy(c);
+    // clockwise seen from above
+    if ((bx - ax) * (cy - ay) - (by - ay) * (cx - ax) > 0) idx.push3(a, c, b);
+    else idx.push3(a, b, c);
+  };
+  const vert = (x: number, y: number, z: number) => {
+    pos.push3(x, y, z);
+    return nv++;
+  };
+
+  // inset rectangle, corners in the same order as the perimeter corners: (0,0) (0,H) (W,H) (W,0)
+  const s = POCKET_INSET;
+  const inner = [vert(s, s, z0), vert(s, Hmm - s, z0), vert(Wmm - s, Hmm - s, z0), vert(Wmm - s, s, z0)];
+  const n = ringIds.length;
+  for (let k = 0; k < 4; k++) {
+    const from = corners[k], to = k === 3 ? n : corners[k + 1];
+    const A = inner[k], B = inner[(k + 1) % 4];
+    const len = to - from;
+    let switched = false;
+    for (let j = from; j < to; j++) {
+      const p = ringIds[j], q = ringIds[(j + 1) % n];
+      const firstHalf = (j - from + 0.5) / len < 0.5;
+      if (!firstHalf && !switched) {
+        tri(p, B, A);
+        switched = true;
+      }
+      tri(p, q, firstHalf ? A : B);
+    }
+    if (!switched) tri(ringIds[to % n], B, A);
+  }
+
+  // ring nesting: parent = smallest ring containing the first point
+  const rings = pocket.rings;
+  const area = rings.map(ringArea);
+  const parent = rings.map((r, i) => {
+    let best = -1;
+    for (let j = 0; j < rings.length; j++)
+      if (j !== i && Math.abs(area[j]) > Math.abs(area[i]) && inRing(rings[j], r[0], r[1]) && (best < 0 || Math.abs(area[j]) < Math.abs(area[best])))
+        best = j;
+    return best;
+  });
+  const lo = rings.map((r) => Array.from({ length: r.length / 2 }, (_, k) => vert(r[2 * k], r[2 * k + 1], z0)));
+  const hi = rings.map((r) => Array.from({ length: r.length / 2 }, (_, k) => vert(r[2 * k], r[2 * k + 1], z0 + pocket.depth)));
+
+  // triangulate in grid units: ring points are exact integers there, so collinear means exactly zero
+  const { ox, oy, step } = pocket.grid;
+  const gx = new Map<number, [number, number]>();
+  const toGrid = (x: number, y: number): [number, number] => [(x - ox) / step, (y - oy) / step];
+  inner.forEach((id, k) => gx.set(id, toGrid(k < 2 ? s : Wmm - s, k === 0 || k === 3 ? s : Hmm - s)));
+  rings.forEach((r, i) =>
+    r.forEach((_, k) => {
+      if (k % 2) return;
+      const g: [number, number] = [Math.round((r[k] - ox) / step), Math.round((r[k + 1] - oy) / step)];
+      gx.set(lo[i][k / 2], g);
+      gx.set(hi[i][k / 2], g);
+    }),
+  );
+  const face = (outer: number[], holes: number[][]) => {
+    const ids = [...outer];
+    const holeIdx: number[] = [];
+    for (const h of holes) {
+      holeIdx.push(ids.length);
+      ids.push(...h);
+    }
+    const coords = ids.flatMap((id) => gx.get(id)!);
+    const loops = [0, ...holeIdx, ids.length];
+    const t = fixTJunctions(fixSlivers(earcut(coords, holeIdx.length ? holeIdx : null), coords), coords, loops);
+    for (const [a, b, c] of t) {
+      // clockwise seen from above
+      const cr = (coords[2 * b] - coords[2 * a]) * (coords[2 * c + 1] - coords[2 * a + 1]) - (coords[2 * b + 1] - coords[2 * a + 1]) * (coords[2 * c] - coords[2 * a]);
+      if (cr > 0) idx.push3(ids[a], ids[c], ids[b]);
+      else idx.push3(ids[a], ids[b], ids[c]);
+    }
+  };
+  // z0: the rectangle minus the letters, and each island minus any letters inside it
+  face(inner, rings.flatMap((_, i) => (parent[i] < 0 ? [lo[i]] : [])));
+  rings.forEach((_, i) => {
+    if (area[i] < 0) face(lo[i], rings.flatMap((_, j) => (parent[j] === i ? [lo[j]] : [])));
+  });
+  // ceilings: each letter minus its islands
+  rings.forEach((_, i) => {
+    if (area[i] > 0) face(hi[i], rings.flatMap((_, j) => (parent[j] === i ? [hi[j]] : [])));
+  });
+  // walls face the ink side (the pocket), which is on the left of each ring
+  rings.forEach((_, i) => {
+    const L = lo[i], U = hi[i], m = L.length;
+    for (let k = 0; k < m; k++) {
+      const k1 = (k + 1) % m;
+      idx.push3(L[k], U[k1], L[k1]);
+      idx.push3(L[k], U[k], U[k1]);
+    }
+  });
+  return nv;
+}
+
+/**
+ * Earcut can leave zero-area triangles where a hole bridge lines up with ring points (the traced rings sit on a
+ * lattice). Each one has a vertex b on its longest edge a-c: split the neighbour across a-c at b instead.
+ */
+function fixSlivers(flat: number[], coords: number[]): [number, number, number][] {
+  const cross = (a: number, b: number, c: number) =>
+    (coords[2 * b] - coords[2 * a]) * (coords[2 * c + 1] - coords[2 * a + 1]) - (coords[2 * b + 1] - coords[2 * a + 1]) * (coords[2 * c] - coords[2 * a]);
+  const d2 = (a: number, b: number) => (coords[2 * a] - coords[2 * b]) ** 2 + (coords[2 * a + 1] - coords[2 * b + 1]) ** 2;
+  const N = coords.length / 2;
+  const tris: ([number, number, number] | null)[] = [];
+  const byEdge = new Map<number, number[]>();
+  const key = (a: number, b: number) => (a < b ? a * N + b : b * N + a);
+  const queue: number[] = [];
+  const add = (a: number, b: number, c: number) => {
+    const t = tris.length;
+    tris.push([a, b, c]);
+    for (const [p, q] of [[a, b], [b, c], [c, a]]) {
+      const k = key(p, q);
+      const l = byEdge.get(k);
+      if (l) l.push(t);
+      else byEdge.set(k, [t]);
+    }
+    if (cross(a, b, c) === 0) queue.push(t);
+  };
+  for (let k = 0; k < flat.length; k += 3) add(flat[k], flat[k + 1], flat[k + 2]);
+  while (queue.length) {
+    const t = queue.pop()!;
+    const tr = tris[t];
+    if (!tr) continue;
+    // longest edge a-c, middle vertex b
+    let [a, b, c] = tr;
+    for (let r = 0; r < 3 && !(d2(a, c) >= d2(a, b) && d2(a, c) >= d2(b, c)); r++) [a, b, c] = [b, c, a];
+    const nb = byEdge.get(key(a, c))!.find((u) => u !== t && tris[u]);
+    if (nb === undefined) continue; // on the face boundary (doesn't happen: rings never touch)
+    const d = tris[nb]!.find((x) => x !== a && x !== c)!;
+    tris[t] = tris[nb] = null;
+    add(a, b, d);
+    add(b, c, d);
+  }
+  return tris.filter((t): t is [number, number, number] => !!t);
+}
+
+/**
+ * Earcut can also run a hole bridge exactly through a vertex, leaving an edge u-w with one triangle on one
+ * side and the two edges u-v, v-w on the other. Any edge used once that isn't on the face's boundary is one
+ * of those: split its triangle at every vertex lying on it. `loops` = start of each ring in coords, then N.
+ */
+function fixTJunctions(tris: [number, number, number][], coords: number[], loops: number[]): [number, number, number][] {
+  const N = coords.length / 2;
+  const key = (a: number, b: number) => (a < b ? a * N + b : b * N + a);
+  const boundary = new Set<number>();
+  for (let r = 0; r + 1 < loops.length; r++)
+    for (let k = loops[r]; k < loops[r + 1]; k++) boundary.add(key(k, k + 1 < loops[r + 1] ? k + 1 : loops[r]));
+  const uses = new Map<number, number>();
+  for (const t of tris) for (let k = 0; k < 3; k++) uses.set(key(t[k], t[(k + 1) % 3]), (uses.get(key(t[k], t[(k + 1) % 3])) ?? 0) + 1);
+  const out: [number, number, number][] = [];
+  for (const t of tris) {
+    let split = false;
+    for (let k = 0; k < 3 && !split; k++) {
+      const u = t[k], w = t[(k + 1) % 3], x = t[(k + 2) % 3];
+      const e = key(u, w);
+      if (uses.get(e) !== 1 || boundary.has(e)) continue;
+      // vertices strictly inside segment u-w, ordered from u (exact: grid coordinates are integers)
+      const ux = coords[2 * u], uy = coords[2 * u + 1], dx = coords[2 * w] - ux, dy = coords[2 * w + 1] - uy;
+      const len2 = dx * dx + dy * dy;
+      const on: [number, number][] = [];
+      for (let v = 0; v < N; v++) {
+        const px = coords[2 * v] - ux, py = coords[2 * v + 1] - uy;
+        const dot = px * dx + py * dy;
+        if (px * dy - py * dx === 0 && dot > 0 && dot < len2) on.push([dot, v]);
+      }
+      if (!on.length) continue;
+      on.sort((a, b) => a[0] - b[0]);
+      const chain = [u, ...on.map((o) => o[1]), w];
+      for (let i = 0; i + 1 < chain.length; i++) out.push([chain[i], chain[i + 1], x]);
+      split = true;
+    }
+    if (!split) out.push(t);
+  }
+  return out;
 }

@@ -3,6 +3,10 @@ import { distanceInside, gaussianBlur, stampConvex, stampDisk, stampPolyline } f
 
 export type RouteStyle = 'raised' | 'flush';
 export type WaterSurface = 'off' | 'flat' | 'waterlines' | 'parallel';
+/** rivers: a channel cut into the terrain, or flush in the water color; both follow the terrain downhill */
+export type RiverStyle = 'off' | 'groove' | 'color';
+/** water mask codes (`ModelInput.waterMask`) */
+export const WATER_LAKE = 1, WATER_RIVER = 2;
 export type PartName = 'terrain' | 'route' | 'water' | 'markers';
 export type MarkerKind = 'start' | 'finish' | 'checkpoint' | 'waypoint';
 export type MarkerShape = 'circle' | 'square' | 'triangle' | 'diamond';
@@ -23,6 +27,11 @@ export interface ModelSettings {
   waterLineSpacingMm: number;
   waterLineWidthMm: number;
   waterLineDepthMm: number;
+  /** direction of parallel water lines, degrees counter-clockwise from east */
+  waterLineAngleDeg: number;
+  riverStyle: RiverStyle;
+  /** groove depth below the terrain */
+  riverDepthMm: number;
   markersOn: boolean;
   markerColor: MarkerColor;
   markerDiameterMm: number;
@@ -34,6 +43,8 @@ export interface ModelSettings {
   markerShapeWaypoint: MarkerShape;
   /** thickness of a colored layer that sits in the terrain (flush route, own-color water) */
   colorDepthMm: number;
+  /** how deep the underside label is cut into the bottom */
+  labelDepthMm: number;
 }
 
 export const DEFAULT_MODEL: ModelSettings = {
@@ -49,6 +60,9 @@ export const DEFAULT_MODEL: ModelSettings = {
   waterLineSpacingMm: 1.5,
   waterLineWidthMm: 0.5,
   waterLineDepthMm: 0.4,
+  waterLineAngleDeg: 0,
+  riverStyle: 'groove',
+  riverDepthMm: 0.6,
   markersOn: true,
   markerColor: 'route',
   markerDiameterMm: 2.5,
@@ -58,6 +72,7 @@ export const DEFAULT_MODEL: ModelSettings = {
   markerShapeCheckpoint: 'triangle',
   markerShapeWaypoint: 'diamond',
   colorDepthMm: 0.6,
+  labelDepthMm: 0.6,
 };
 
 export interface MarkerPin {
@@ -76,9 +91,11 @@ export interface ModelInput {
   mmPerGroundM: number;
   /** route polylines in print mm, interleaved x,y */
   routeLines: Float64Array[];
-  /** water cells (W x H), optional */
+  /** water cells (W x H): WATER_LAKE (lakes, sea) or WATER_RIVER; optional */
   waterMask?: Uint8Array;
   markers: MarkerPin[];
+  /** text debossed into the bottom, from `layoutLabel` (rings in print mm and their grid) */
+  label?: { rings: Float64Array[]; grid: { ox: number; oy: number; step: number } };
 }
 
 export interface Part extends MeshData {
@@ -91,12 +108,21 @@ export interface ModelStats {
   reliefMm: number;
   maxHeightMm: number;
   cleanupFixes: number;
+  /** depth the label was cut to (capped to stay clear of the color layers); 0 without a label */
+  labelDepthMm: number;
 }
 
-// Cell labels (exclusive, later wins): marker > route > water line > water > land.
-const LAND = 0, WATER = 1, WLINE = 2, ROUTE = 3, MARKER = 4;
-// Level codes, strictly increasing in height at every corner.
-const ZERO = 0, ZCD = 1, ZE = 2, Z = 3, R = 4, M = 5;
+// Cell labels (exclusive, later wins): marker > route > water line > river > water > land.
+const LAND = 0, WATER = 1, RIVER = 2, WLINE = 3, ROUTE = 4, MARKER = 5;
+// Level codes, strictly increasing in height at every corner. ZD1 / ZD2 are the deeper and shallower of
+// the two engraved levels (water lines, river groove); see `engraved`.
+const ZERO = 0, ZCD = 1, ZD1 = 2, ZD2 = 3, Z = 4, R = 5, M = 6;
+
+/** Level codes for the water lines and the river groove: the deeper one gets ZD1 (the same one when equal). */
+function engraved(s: ModelSettings): { ZE: number; ZG: number } {
+  const e = s.waterLineDepthMm, g = s.riverDepthMm;
+  return e === g ? { ZE: ZD1, ZG: ZD1 } : e > g ? { ZE: ZD1, ZG: ZD2 } : { ZE: ZD2, ZG: ZD1 };
+}
 
 interface PartDef {
   name: PartName;
@@ -235,7 +261,8 @@ function smoothOutlines(
     for (let i = 0; i < W * H; i++) m[i] = inRegion(i) ? 1 : 0;
     return gaussianBlur(m, W, H, 1);
   };
-  const waterF = waterMask ? blurred((i) => waterMask[i] === 1) : null;
+  const waterF = waterMask ? blurred((i) => waterMask[i] === WATER_LAKE) : null;
+  const riverF = waterMask ? blurred((i) => labels[i] === RIVER) : null;
   const wlineF = waterMask ? blurred((i) => labels[i] === WLINE) : null;
   const contour = (F: Float32Array, c: number) => {
     const cx = c % CW, cy = (c - cx) / CW;
@@ -264,6 +291,7 @@ function smoothOutlines(
       }
       if (pick) move(c, pick[0], pick[1]);
     } else if (o === WATER && waterF) contour(waterF, c);
+    else if (o === RIVER && riverF) contour(riverF, c);
     else if (o === WLINE && wlineF) contour(wlineF, c);
   }
 
@@ -307,6 +335,8 @@ function partDefs(s: ModelSettings): PartDef[] {
   const raised = s.routeStyle === 'raised';
   const flushOwn = !raised && s.routeOwnColor;
   const waterOn = s.waterSurface !== 'off';
+  const riverColor = s.riverStyle === 'color';
+  const { ZE, ZG } = engraved(s);
   const mk = markerPart(s);
   const defs: PartDef[] = [
     {
@@ -315,6 +345,8 @@ function partDefs(s: ModelSettings): PartDef[] {
         switch (l) {
           case WATER:
             return s.waterOwnColor ? ZCD : Z;
+          case RIVER:
+            return riverColor ? ZCD : ZG;
           case WLINE:
             return s.waterOwnColor ? ZCD : ZE;
           case ROUTE:
@@ -334,10 +366,11 @@ function partDefs(s: ModelSettings): PartDef[] {
       top: (l) => (l === ROUTE ? (raised ? R : Z) : l === MARKER && mk === 'route' ? M : NONE),
       bot: () => (raised ? Z : ZCD),
     });
-  if (waterOn && s.waterOwnColor)
+  const lakesOwn = waterOn && s.waterOwnColor;
+  if (lakesOwn || riverColor)
     defs.push({
       name: 'water',
-      top: (l) => (l === WATER ? Z : l === WLINE ? ZE : NONE),
+      top: (l) => (lakesOwn && l === WATER ? Z : lakesOwn && l === WLINE ? ZE : riverColor && l === RIVER ? Z : NONE),
       bot: () => ZCD,
     });
   if (s.markersOn && mk === 'markers')
@@ -437,19 +470,27 @@ export function buildModel(input: ModelInput, s: ModelSettings): { parts: Part[]
   // --- labels
   const labels = new Uint8Array(W * H).fill(LAND);
   const waterOn = s.waterSurface !== 'off' && !!input.waterMask;
+  const riversOn = s.riverStyle !== 'off' && !!input.waterMask;
+  // rivers run downhill: never flattened, no texture, just their own label
+  if (riversOn) for (let i = 0; i < W * H; i++) if (input.waterMask![i] === WATER_RIVER) labels[i] = RIVER;
   if (waterOn) {
-    const wm = input.waterMask!;
+    const wm = input.waterMask!.map((v) => (v === WATER_LAKE ? 1 : 0));
     flattenWater(E, wm, W, H);
     for (let i = 0; i < W * H; i++) if (wm[i]) labels[i] = WATER;
     if (s.waterSurface === 'waterlines' || s.waterSurface === 'parallel') {
       const dist = distanceInside(wm, W, H);
       const sp = s.waterLineSpacingMm, lw = s.waterLineWidthMm;
+      const a = (s.waterLineAngleDeg * Math.PI) / 180, sa = Math.sin(a), ca = Math.cos(a);
       for (let i = 0; i < W * H; i++) {
         if (!wm[i]) continue;
         const d = dist[i] * cell; // mm from shore (cell center to nearest land cell center)
         let on: boolean;
         if (s.waterSurface === 'waterlines') on = d > sp * 0.6 && (d + lw / 2) % sp < lw;
-        else on = d > lw * 1.5 && ((Math.floor(i / W) + 0.5) * cell) % sp < lw;
+        else {
+          // distance across the lines from the cell center
+          const t = -((i % W) + 0.5) * cell * sa + (Math.floor(i / W) + 0.5) * cell * ca;
+          on = d > lw * 1.5 && ((t % sp) + sp) % sp < lw;
+        }
         if (on) labels[i] = WLINE;
       }
     }
@@ -473,7 +514,7 @@ export function buildModel(input: ModelInput, s: ModelSettings): { parts: Part[]
 
   const defs = partDefs(s);
   const cleanupFixes = cleanupDiagonals(labels, W, H, defs);
-  const { offset, diag } = smoothOutlines(labels, W, H, cell, input.routeLines, s.routeWidthMm / 2 / cell, outlines, waterOn ? input.waterMask! : null);
+  const { offset, diag } = smoothOutlines(labels, W, H, cell, input.routeLines, s.routeWidthMm / 2 / cell, outlines, waterOn || riversOn ? input.waterMask! : null);
 
   // --- height fields (mm)
   let eMin = Infinity, eMax = -Infinity;
@@ -482,7 +523,9 @@ export function buildModel(input: ModelInput, s: ModelSettings): { parts: Part[]
     if (E[c] > eMax) eMax = E[c];
   }
   const vScale = s.exaggeration * input.mmPerGroundM;
-  const colorDepth = Math.max(s.colorDepthMm, s.waterLineDepthMm + 0.2);
+  // colored layers sit below every engraved level; a river groove only counts when there is a river
+  const grooved = s.riverStyle === 'groove' && labels.includes(RIVER);
+  const colorDepth = Math.max(s.colorDepthMm, s.waterLineDepthMm + 0.2, grooved ? s.riverDepthMm + 0.2 : 0);
   const base = Math.max(s.baseMm, colorDepth + 0.4);
   const Zf = new Float32Array(nC);
   for (let c = 0; c < nC; c++) {
@@ -534,15 +577,17 @@ export function buildModel(input: ModelInput, s: ModelSettings): { parts: Part[]
     }
   }
 
-  const e = s.waterLineDepthMm;
+  const dDeep = Math.max(s.waterLineDepthMm, s.riverDepthMm), dShallow = Math.min(s.waterLineDepthMm, s.riverDepthMm);
   const level = (c: number, code: number) => {
     switch (code) {
       case ZERO:
         return 0;
       case ZCD:
         return Zf[c] - colorDepth;
-      case ZE:
-        return Zf[c] - e;
+      case ZD1:
+        return Zf[c] - dDeep;
+      case ZD2:
+        return Zf[c] - dShallow;
       case Z:
         return Zf[c];
       case R:
@@ -551,6 +596,10 @@ export function buildModel(input: ModelInput, s: ModelSettings): { parts: Part[]
         return Mf[c];
     }
   };
+
+  // the label stays at least 0.4 mm below the lowest colored layer or water line
+  const labelDepthMm = input.label?.rings.length ? Math.max(0.2, Math.min(s.labelDepthMm, base - colorDepth - 0.4)) : 0;
+  const pocket = labelDepthMm ? { ...input.label!, depth: labelDepthMm } : undefined;
 
   const parts: Part[] = [];
   for (const d of defs) {
@@ -563,13 +612,14 @@ export function buildModel(input: ModelInput, s: ModelSettings): { parts: Part[]
       if (top[i] !== NONE) any = true;
     }
     if (!any) continue;
-    parts.push({ name: d.name, ...buildSlab(W, H, cell, top, bot, level, d.name === 'terrain', offset, diag) });
+    const terrain = d.name === 'terrain';
+    parts.push({ name: d.name, ...buildSlab(W, H, cell, top, bot, level, terrain, offset, diag, terrain ? pocket : undefined) });
   }
   let maxH = 0;
   for (const p of parts) for (let i = 2; i < p.positions.length; i += 3) maxH = Math.max(maxH, p.positions[i]);
 
   return {
     parts,
-    stats: { elevMin: eMin, elevMax: eMax, reliefMm: (eMax - eMin) * vScale, maxHeightMm: maxH, cleanupFixes },
+    stats: { elevMin: eMin, elevMax: eMax, reliefMm: (eMax - eMin) * vScale, maxHeightMm: maxH, cleanupFixes, labelDepthMm },
   };
 }

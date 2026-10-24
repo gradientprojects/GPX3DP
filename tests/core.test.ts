@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { haversineKm } from '../src/core/geo';
-import { parseGpx } from '../src/core/gpx';
+import { climbOf, parseGpx } from '../src/core/gpx';
 import { orderLegs } from '../src/core/order';
 import { fitToPlate } from '../src/core/printers';
 import { makeFrame, toMmX, toMmY } from '../src/core/project';
@@ -49,6 +49,17 @@ describe('gpx', () => {
     const g = parseGpx('<gpx><rte><rtept lat="1" lon="2"/></rte></gpx>', 'My Ride.gpx');
     expect(g.name).toBe('My Ride');
     expect(g.lat.length).toBe(1);
+    expect(g.climbM).toBeNull();
+  });
+  it('climbing: jitter under 2 m adds nothing, a 100 m hill adds about 100 m', () => {
+    const jitter = Array.from({ length: 200 }, (_, i) => 500 + (i % 2 ? 1.5 : 0));
+    expect(climbOf(jitter)).toBe(0);
+    const hill = [...Array.from({ length: 201 }, (_, i) => 500 + i * 0.5), ...Array.from({ length: 201 }, (_, i) => 600 - i * 0.5)];
+    const c = climbOf(hill.map((e, i) => e + (i % 2 ? 0.8 : 0)))!;
+    expect(c).toBeGreaterThan(98);
+    expect(c).toBeLessThanOrEqual(101);
+    const pts = hill.map((e, i) => `<trkpt lat="1" lon="${i * 1e-4}"><ele>${e}</ele></trkpt>`).join('');
+    expect(parseGpx(`<gpx><trk><trkseg>${pts}</trkseg></trk></gpx>`, 'h.gpx').climbM).toBeCloseTo(100, 0);
   });
 });
 

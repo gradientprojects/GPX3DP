@@ -41,7 +41,7 @@ it.runIf(!!out && files.length > 0)('SRMR end to end', async () => {
   ];
   const model = { ...DEFAULT_MODEL, routeOwnColor: true, waterOwnColor: true, markerColor: 'own' as const };
   const r = await buildFromRequest(
-    { type: 'build', id: 1, bounds, edge: 'width', edgeMm: 200, cellMm: 0.25, rivers: false, riverWidthMm: 0.8, model, routeLines: [Float64Array.from(line)], markers },
+    { type: 'build', id: 1, bounds, edge: 'width', edgeMm: 200, cellMm: 0.25, rivers: false, riverWidthMm: 0.8, model, routeLines: [Float64Array.from(line)], markers, label: null },
     () => {},
   );
   const ms = performance.now() - t0;
