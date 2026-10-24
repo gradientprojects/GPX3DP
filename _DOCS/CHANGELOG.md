@@ -2,6 +2,10 @@
 
 Append-only. Newest first. Never edit or remove old entries.
 
+## 2026-10-23 — Pages workflow actions on Node 24
+
+- GitHub warned that the deploy's actions target Node 20 (deprecated). Bumped to releases that run on Node 24: checkout v7, setup-node v7, upload-pages-artifact v5 (uses upload-artifact v7), deploy-pages v5.
+
 ## 2026-10-23 — Rivers separate from lakes, suggested exaggeration
 
 - Kiran: "do 1, 2, 4, hold on 3". Tiled printing is on hold.
