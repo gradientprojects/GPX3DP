@@ -10,3 +10,4 @@ test-data/
 *.gpx
 coverage/
 *.gpx.zip
+/result.json
