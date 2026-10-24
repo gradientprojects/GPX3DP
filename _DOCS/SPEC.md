@@ -241,6 +241,7 @@ A free public static web app on GitHub Pages. It turns one or more GPX files int
 - Legs whose seam is under 2 km are joined into one line. Bigger gaps are left open.
 - Crop handles use their own pointer dragging on window listeners. MapLibre's marker drag only ends on a map mouseup, and the handles are re-inserted mid-drag.
 - MapLibre 6 needs its worker bundled by Vite (`?worker&url` + `setWorkerUrl`).
+- Dev-only UI feedback layer: `vite.config.ts` loads the `/ui-feedback` plugin from `~/.claude/skills/ui-feedback/` when it is installed (notes on elements and copy in the browser pane, read by Claude). `apply: 'serve'`, so it is never in a build, and skipped where the skill is missing.
 
 ## Test data
 
