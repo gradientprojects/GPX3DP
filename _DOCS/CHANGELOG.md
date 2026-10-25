@@ -2,6 +2,15 @@
 
 Append-only. Newest first. Never edit or remove old entries.
 
+## 2026-10-25 — Checks answered, test coupons
+
+- Climb: Strava says 13,045 ft for the Death Ride, the app 12,966 (0.6% apart). The ~15,000 ft published figure was the outlier; `CLIMB_HYSTERESIS_M` stays at 2 m.
+- Bambu Studio app (Kiran): the 3MF opens as "geometry only" with the parts correctly labeled as one multi-part object. Kiran: focus on Bambu; other slicers later.
+- Built the test coupons offered on 2026-10-23 (`scripts/make-coupon.test.ts`, run with `scripts/coupon.config.ts`): three flat tiles with the underside label at 4, 5.5 and 7 mm and river grooves at 0.6, 0.8 and 1.2 mm.
+  - First try used the full three-line label on a 3 mm base: tiles up to 146 mm long. Cut to two short lines on a 2 mm base (51 to 82 mm).
+  - Rated Tight / Good / Good at 0.4 mm, so the print shows whether the limits match reality. Bambu CLI slices it. Kiran will print it.
+  - Kiran asked if layer height matters: the script hadn't rounded depths to whole layers as the app does (0.6 mm is 3.75 layers at 0.16). Fixed; `LAYER=` picks the layer height, and files for 0.16 and 0.2 were built.
+
 ## 2026-10-23 — UI feedback layer on the dev server
 
 - Kiran wanted to give live feedback on elements and copy in the browser pane. Built a reusable tool, `~/.claude/skills/ui-feedback/` (a page overlay plus a dev-only Vite plugin), with GPX3DP as the first user.

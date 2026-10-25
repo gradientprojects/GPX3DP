@@ -24,7 +24,10 @@ A free public static web app on GitHub Pages. It turns one or more GPX files int
 - 2026-10-23: underside label built (not committed yet). 133 unit tests.
   - Death Ride (200 mm, 3 lines): builds in about 0.5 s with the label, manifold.
   - PrusaSlicer CLI: `--info` reports manifold with 2 parts; the first SLA layers show the text as gaps.
-- Not verified yet: OrcaSlicer (its CLI segfaults on this Mac, even on `--help`) and slicing in the Bambu GUI. Kiran to check both in the apps.
+- 2026-10-25, Bambu Studio app (Kiran): the 3MF opens as "geometry only" (expected: it doesn't claim to be a Bambu project) with the parts correctly named as one multi-part object.
+- Climb check (2026-10-25): Death Ride 12,966 ft in the app vs 13,045 ft on Strava (0.6%), so `CLIMB_HYSTERESIS_M` stays at 2 m.
+- Slicer focus is Bambu for now; OrcaSlicer and others later (Orca's CLI segfaults on this Mac, even on `--help`).
+- Test print pending: the coupons below, to check the label print-check limits and the river groove widths.
 
 ## Constraints
 
@@ -247,6 +250,10 @@ A free public static web app on GitHub Pages. It turns one or more GPX files int
 
 - `test-data/srmr/`: Kiran's 6 real SRMR files (git-ignored; zips also kept in the project root, git-ignored).
 - `test-data/synthetic/`: from `scripts/make-synthetic-gpx.mjs`.
+- Test coupons: `npx vitest run --config scripts/coupon.config.ts` writes `build/GPX3DP_test_coupons_0p4N_0p16L.3mf` (not part of `npm test`). `LAYER=0.2` builds for another layer height; depths are rounded to whole layers like the app (0.16: 0.64 mm, 0.2: 0.6 mm).
+  - Three flat 2 mm tiles, Inter label underneath ("Death Ride" / "13,045 ft · N mm") at 4, 5.5 and 7 mm, and three wavy river grooves on top at 0.6, 0.8 and 1.2 mm wide, 0.6 deep (narrowest at the north edge).
+  - Print check at 0.4 mm: 4 mm Tight (groove 0.55, wall 0.55), 5.5 mm Good (0.85 / 0.75), 7 mm Good (1.05 / 0.85). Tiles 51, 74 and 82 mm long.
+  - Bambu CLI slices it (one plate, about 1.5 h at the CLI defaults).
 
 ## Open questions
 
