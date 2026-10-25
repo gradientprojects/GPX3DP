@@ -78,7 +78,8 @@ button:disabled { opacity: 0.45; cursor: default; }
 button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
 button.ghost { background: transparent; }
 button.on { outline: 2px solid var(--accent); }
-.seg { gap: 14px; }
+.seg { gap: 14px; flex-wrap: wrap; }
+.seg label { white-space: nowrap; }
 .muted { color: var(--muted); }
 .small { font-size: 12px; }
 .note { color: var(--warn); font-size: 12px; margin: 4px 0 0; }
