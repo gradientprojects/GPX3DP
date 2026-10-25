@@ -39,14 +39,14 @@ it.runIf(!!out && files.length > 0)('SRMR end to end', async () => {
     { xMm: line[0], yMm: line[1], kind: 'start' },
     { xMm: line.at(-2)!, yMm: line.at(-1)!, kind: 'finish' },
   ];
-  const model = { ...DEFAULT_MODEL, routeOwnColor: true, waterOwnColor: true, markerColor: 'own' as const };
+  const model = { ...DEFAULT_MODEL, routeOwnColor: true, waterOwnColor: true, markerColor: 'water' as const };
   const r = await buildFromRequest(
     { type: 'build', id: 1, bounds, edge: 'width', edgeMm: 200, cellMm: 0.25, rivers: false, riverWidthMm: 0.8, model, routeLines: [Float64Array.from(line)], markers, label: null },
     () => {},
   );
   const ms = performance.now() - t0;
   for (const p of r.parts) expect({ part: p.name, ...validateMesh(p.positions, p.indices) }).toMatchObject({ ok: true });
-  const colors = { route: '#d23a2a', water: '#3a78c2', markers: '#f2b705' };
+  const colors = { route: '#d23a2a', lakes: '#3a78c2', rivers: '#3a78c2', markers: '#f2b705' };
   writeFileSync(`${out}/srmr_bambu.3mf`, to3mf(r.parts, { title: 'SRMR', description: 'test', colors }));
   writeFileSync(`${out}/srmr_prusa.3mf`, to3mf(r.parts, { title: 'SRMR', description: 'test', colors, layout: 'single' }));
   writeFileSync(`${out}/srmr_merged.stl`, toStl(r.parts));

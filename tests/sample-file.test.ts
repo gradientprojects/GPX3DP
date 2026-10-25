@@ -30,9 +30,9 @@ it.runIf(!!out)('writes sample files', () => {
         { xMm: 40, yMm: 30, kind: 'checkpoint' },
       ],
     },
-    { ...DEFAULT_MODEL, routeOwnColor: true, waterOwnColor: true, markerColor: 'own' },
+    { ...DEFAULT_MODEL, routeOwnColor: true, waterOwnColor: true, markerColor: 'water' },
   );
-  const colors = { route: '#D02020', water: '#2060D0', markers: '#F0C000' };
+  const colors = { route: '#D02020', lakes: '#2060D0', rivers: '#2060D0', markers: '#F0C000' };
   writeFileSync(`${out}/sample.3mf`, to3mf(parts, { title: 'GPX3DP sample', description: 'test', colors }));
   writeFileSync(`${out}/single.3mf`, to3mf(parts, { title: 'GPX3DP sample', description: 'test', colors, layout: 'single' }));
   writeFileSync(`${out}/sample.stl`, toStl(parts));

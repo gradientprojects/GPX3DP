@@ -11,8 +11,8 @@ import { printSuffix } from './core/export';
 import { GOOD_GROOVE_NOZZLES, GOOD_WALL_NOZZLES, labelWidthsAt, snapPlacement, type LabelSpec } from './core/label';
 import { simplifyLine } from './core/simplify';
 import { LABEL_FONTS, labelFont } from './fonts';
-import { DEFAULTS, fromHash, NON_GEOMETRY, roundToLayers, suggestedSmoothMm, toHash, toLayers, type AppSettings } from './settings';
-import { MapView, type MapPin } from './ui/map';
+import { DEFAULTS, fromHash, NON_GEOMETRY, paletteKeyFor, resolveColors, roundToLayers, suggestedSmoothMm, toHash, toLayers, type AppSettings, type ColorFeature, type PaletteKey } from './settings';
+import { darker, MapView, type MapPin } from './ui/map';
 import { Preview } from './ui/preview3d';
 import type { FromWorker, ParsedLeg, PartMesh, ToWorker } from './worker/messages';
 import PipelineWorker from './worker/pipeline.worker.ts?worker';
@@ -84,6 +84,7 @@ function effectiveModel(): ModelSettings {
     m.routeOwnColor = m.waterOwnColor = false;
     m.markerColor = 'terrain';
     if (m.riverStyle === 'color') m.riverStyle = 'groove';
+    m.labelStyle = 'deboss';
   }
   if (m.routeStyle === 'flush' && !m.routeOwnColor) m.routeStyle = 'raised';
   return m;
@@ -224,7 +225,23 @@ function refreshMap(fit = false) {
   mapView.setPins(S.markersOn ? pinList() : []);
   const cb = cropBounds();
   if (fit && cb) mapView.fit(cb);
+  // the print's colors and widths, so the map shows what is in the print and how thin the rivers will be
+  const eff = effectiveModel(), rc = resolveColors(S), f = frame();
+  const lakesOn = S.waterSurface !== 'off', riversOn = S.riverStyle !== 'off';
+  mapView.setPrintStyle({
+    terrain: rc.terrain,
+    lakes: lakesOn ? (eff.waterOwnColor ? rc.lakes : rc.terrain) : null,
+    lakesOutlined: !eff.waterOwnColor,
+    rivers: riversOn ? (eff.riverStyle === 'color' ? rc.rivers : darker(rc.terrain)) : null,
+    riverLines: S.rivers,
+    route: eff.routeOwnColor ? rc.route : rc.terrain,
+    routeWidthMm: S.routeWidthMm,
+    riverWidthMm: S.riverWidthMm,
+    mmPerGroundM: f?.mmPerGroundM ?? null,
+    lat: cb ? (cb.north + cb.south) / 2 : 0,
+  });
 }
+
 
 // ---------------------------------------------------------------- legs list
 function renderLegs() {
@@ -311,9 +328,20 @@ function writeInputs() {
     if (el.type === 'checkbox') el.checked = !!v;
     else el.value = `${v}`;
   }
-  for (const el of $$<HTMLInputElement>('[data-color]')) el.value = S.colors[el.dataset.color as keyof AppSettings['colors']];
+  for (const el of $$<HTMLInputElement>('[data-color]')) el.value = S.colors[el.dataset.color as PaletteKey];
+  // swatches in the feature cards show the color the feature ends up with
+  const rc = resolveColors(S);
+  for (const el of $$<HTMLInputElement>('[data-feature]')) el.value = rc[el.dataset.feature as ColorFeature];
   for (const el of $$<HTMLInputElement>('input[name="mc"]')) el.checked = (el.value === 'multi') === S.multiColor;
   refreshReadouts();
+}
+
+/** After a color edit: every swatch, the 3D preview and the map follow; the geometry doesn't change. */
+function colorsChanged() {
+  writeInputs();
+  saveHash();
+  refreshMap(false);
+  if (lastParts.length) preview.setColors(resolveColors(S), lastParts.map((p) => p.name));
 }
 
 function readInput(el: HTMLInputElement) {
@@ -351,10 +379,10 @@ function refreshReadouts() {
   $('#layer-readout').textContent = [
     S.routeStyle === 'raised' ? layers('Route', S.routeHeightMm) : '',
     S.markersOn ? layers('markers +', S.markerHeightMm).replace('+ ', '+') : '',
-    S.multiColor && (S.routeStyle === 'flush' || S.waterOwnColor) ? layers('color layer', S.colorDepthMm) : '',
+    S.multiColor && (S.routeStyle === 'flush' || S.waterOwnColor || S.riverStyle === 'color') ? layers('color layer', S.colorDepthMm) : '',
     S.waterSurface === 'waterlines' || S.waterSurface === 'parallel' ? layers('water lines', S.waterLineDepthMm) : '',
     eff0.riverStyle === 'groove' ? layers('river groove', S.riverDepthMm) : '',
-    labelLines().length ? layers('label', S.labelDepthMm) : '',
+    labelLines().length ? layers(eff0.labelStyle === 'color' ? 'text inlay' : 'label', S.labelDepthMm) : '',
   ]
     .filter(Boolean)
     .join(' · ');
@@ -373,6 +401,20 @@ function refreshReadouts() {
   const single = !S.multiColor;
   for (const k of ['routeOwnColor', 'waterOwnColor']) ($(`[data-k="${k}"]`) as HTMLInputElement).disabled = single;
   for (const o of $$<HTMLOptionElement>('[data-k="markerColor"] option:not([value="terrain"])')) o.disabled = single;
+  // the palette: one color on a single-color printer; own-color swatches only when chosen
+  for (const el of $$<HTMLElement>('.palette .multi-only')) el.toggleAttribute('data-single', single);
+  for (const k of ['lakes', 'rivers', 'text'] as const) {
+    const own = S[`${k}Color`] === 'own';
+    ($(`[data-color="${k}"]`) as HTMLElement).hidden = !own;
+    ($(`[data-color="${k}"]`).nextElementSibling as HTMLElement | null)?.toggleAttribute('hidden', !own); // its reset button
+  }
+  for (const el of $$<HTMLInputElement>('[data-feature]')) el.disabled = single;
+  $('#colors-note').textContent = single
+    ? 'Single color: everything prints in the terrain color. Routes, water, markers and the label are shaped into the terrain instead.'
+    : 'Each card below says whether its feature prints in its color or as part of the terrain. The map and the 3D preview show these colors.';
+  ($('[data-k="labelStyle"] option[value="color"]') as HTMLOptionElement).disabled = single;
+  ($('#label-color-swatch') as HTMLElement).hidden = S.labelStyle !== 'color';
+  $('#label-style-note').textContent = S.labelStyle === 'color' && single ? 'A color label needs a multi-color printer, so the text is debossed.' : '';
   const flushOpt = $('[data-k="routeStyle"] option[value="flush"]') as HTMLOptionElement;
   flushOpt.disabled = single;
   const eff = effectiveModel();
@@ -403,7 +445,7 @@ function refreshReadouts() {
         ? 'Single color: markers print in the terrain color.'
         : 'The route has no own color, so markers print in the terrain color.'
       : '';
-  ($('#marker-color-swatch') as HTMLElement).hidden = S.markerColor !== 'own';
+
   const lines = labelLines();
   const small = exagLineIndex(lines);
   $('#label-preview').replaceChildren(
@@ -539,10 +581,11 @@ function changed(geometry: boolean) {
 
 $('#panel').addEventListener('input', (e) => {
   const el = e.target as HTMLInputElement;
-  if (el.dataset.color) {
-    S.colors[el.dataset.color as keyof AppSettings['colors']] = el.value;
-    saveHash();
-    if (lastParts.length) preview.setColors(S.colors, lastParts.map((p) => p.name));
+  // a swatch edits a palette entry: its own, or (in a feature card) the one the feature's color comes from
+  const key = el.dataset.color ? (el.dataset.color as PaletteKey) : el.dataset.feature ? paletteKeyFor(S, el.dataset.feature as ColorFeature) : null;
+  if (key) {
+    S.colors[key] = el.value;
+    colorsChanged();
     return;
   }
   if (el.name === 'mc') S.multiColor = el.value === 'multi';
@@ -559,6 +602,8 @@ $('#panel').addEventListener('input', (e) => {
   }
   if (k === 'marginPct') S.crop = null;
   if (k === 'units') renderLegs();
+  // choices that move colors around: every swatch and the preview follow at once
+  if (k === 'lakesColor' || k === 'riversColor' || k === 'textColor' || k === 'markerColor' || k === 'labelStyle' || el.name === 'mc') colorsChanged();
   if (k === 'printer' || k === 'plateX' || k === 'plateY' || k === 'edge') clampEdge();
   // units are only cosmetic, except in the label's stats line
   changed(!k || !NON_GEOMETRY.includes(k) || (k === 'units' && S.labelStats));
@@ -596,7 +641,7 @@ function fieldOf(el: HTMLInputElement): Field | null {
     };
   }
   if (el.dataset.color) {
-    const c = el.dataset.color as keyof AppSettings['colors'];
+    const c = el.dataset.color as PaletteKey;
     return { el, isDefault: () => S.colors[c] === DEFAULTS.colors[c], reset: () => ((el.value = DEFAULTS.colors[c]), fire(el)) };
   }
   if (el.name === 'mc' && el.value === 'multi') {
@@ -612,7 +657,7 @@ function defaultLabel(el: HTMLInputElement): string {
     const opt = el instanceof HTMLSelectElement ? [...el.options].find((o) => o.value === `${v}`) : null;
     return opt ? opt.textContent!.trim() : fmtDefault(v);
   }
-  if (el.dataset.color) return DEFAULTS.colors[el.dataset.color as keyof AppSettings['colors']];
+  if (el.dataset.color) return DEFAULTS.colors[el.dataset.color as PaletteKey];
   return DEFAULTS.multiColor ? 'Multi-color' : 'Single color';
 }
 
@@ -781,7 +826,7 @@ async function runBuild() {
     refreshLabelNote();
     hasModel = true;
     lastParts = res.parts;
-    preview.setParts(res.parts, S.colors, res.widthMm, res.heightMm, res.label.depthMm);
+    preview.setParts(res.parts, resolveColors(S), res.widthMm, res.heightMm, res.label.depthMm);
     preview.setLabelBox(res.label.box);
     const tris = res.parts.reduce((s, p) => s + p.report.triangles, 0);
     const bad = res.parts.filter((p) => !p.report.ok);
@@ -834,7 +879,7 @@ async function download(format: '3mf' | 'stl-parts' | 'stl-merged') {
     title,
     // say when heights are stretched, so the file isn't mistaken for true scale
     description: ATTRIBUTION + (builtExag !== 1 ? ` Vertical exaggeration ${builtExag}×.` : ''),
-    colors: S.colors,
+    colors: resolveColors(S),
     suffix: printSuffix(builtPrint.nozzleMm, builtPrint.layerMm),
   });
   hideProgress();

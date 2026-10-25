@@ -55,7 +55,7 @@ export function buildSlab(
   diag?: Uint8Array,
   /** text debossed into the flat bottom (needs flatBottom) */
   pocket?: Pocket,
-): MeshData {
+): SlabMesh {
   const CW = W + 1;
   const nCorners = CW * (H + 1);
   const vid = new Int32Array(nCorners * NUM_CODES).fill(-1);
@@ -158,7 +158,9 @@ export function buildSlab(
     for (let x = W - 1; x >= 1; x--) ring.push(x);
     const code = bot[0];
     const z0 = level(0, code);
-    nv = pocketBottom(pos, idx, nv, ring.map((c) => v(c, code)), [0, H, H + W, 2 * H + W], W * cell, H * cell, z0, pocket);
+    const plug = pocket.plug ? { pos: new Grow(new Float32Array(1 << 14)), idx: new Grow(new Uint32Array(1 << 14)) } : null;
+    nv = pocketBottom(pos, idx, nv, ring.map((c) => v(c, code)), [0, H, H + W, 2 * H + W], W * cell, H * cell, z0, pocket, plug);
+    if (plug) return { positions: pos.done(), indices: idx.done(), plug: { positions: plug.pos.done(), indices: plug.idx.done() } };
   } else if (flatBottom) {
     // Fan from a center vertex to the perimeter, clockwise seen from above (normal -z).
     const center = nv++;
@@ -182,6 +184,13 @@ export interface Pocket {
   grid: { ox: number; oy: number; step: number };
   /** how far the letters go up into the bottom, mm */
   depth: number;
+  /** also build the letters as a solid that fills the pocket exactly (a color inlay), returned as `plug` */
+  plug?: boolean;
+}
+
+export interface SlabMesh extends MeshData {
+  /** the pocket's inverse: a closed solid per letter, sharing the pocket's vertex positions bit for bit */
+  plug?: MeshData;
 }
 
 /** keeps the frame strip clear of the label (labels stay 3 mm inside the edge) */
@@ -191,6 +200,10 @@ const POCKET_INSET = 1.5;
  * Flat bottom with debossed letters. A strip from the perimeter to an inset rectangle (so the perimeter's many
  * collinear vertices stay exact), the rectangle minus the letters at z0, the islands inside letters at z0, the
  * letter ceilings at z0 + depth, and walls along every ring. All faces under the part face -z.
+ *
+ * With `plug`, the inverse solid is written to its own buffers in the same pass: the letters minus their
+ * islands as top (+z, at z0 + depth, the same triangles as the ceilings) and bottom (-z, at z0), and the
+ * walls facing away from the ink. Same ring points pushed the same way, so the positions match bit for bit.
  */
 function pocketBottom(
   pos: Grow<Float32Array>,
@@ -202,6 +215,7 @@ function pocketBottom(
   Hmm: number,
   z0: number,
   pocket: Pocket,
+  plug: { pos: Grow<Float32Array>; idx: Grow<Uint32Array> } | null = null,
 ): number {
   const xy = (id: number): [number, number] => [pos.buf[3 * id], pos.buf[3 * id + 1]];
   const tri = (a: number, b: number, c: number) => {
@@ -248,6 +262,18 @@ function pocketBottom(
   });
   const lo = rings.map((r) => Array.from({ length: r.length / 2 }, (_, k) => vert(r[2 * k], r[2 * k + 1], z0)));
   const hi = rings.map((r) => Array.from({ length: r.length / 2 }, (_, k) => vert(r[2 * k], r[2 * k + 1], z0 + pocket.depth)));
+  // the plug's own copies of the ring vertices, by terrain vertex id
+  const toPlug = new Map<number, number>();
+  let np = 0;
+  if (plug)
+    rings.forEach((r, i) =>
+      [lo[i], hi[i]].forEach((ids, h) =>
+        ids.forEach((id, k) => {
+          plug.pos.push3(r[2 * k], r[2 * k + 1], h ? z0 + pocket.depth : z0);
+          toPlug.set(id, np++);
+        }),
+      ),
+    );
 
   // triangulate in grid units: ring points are exact integers there, so collinear means exactly zero
   const { ox, oy, step } = pocket.grid;
@@ -262,7 +288,8 @@ function pocketBottom(
       gx.set(hi[i][k / 2], g);
     }),
   );
-  const face = (outer: number[], holes: number[][]) => {
+  /** triangulate outer minus holes; into the terrain (facing -z) or, with `up` / `out`, into the plug */
+  const face = (outer: number[], holes: number[][], out: Grow<Uint32Array> = idx, up = false) => {
     const ids = [...outer];
     const holeIdx: number[] = [];
     for (const h of holes) {
@@ -272,29 +299,41 @@ function pocketBottom(
     const coords = ids.flatMap((id) => gx.get(id)!);
     const loops = [0, ...holeIdx, ids.length];
     const t = fixTJunctions(fixSlivers(earcut(coords, holeIdx.length ? holeIdx : null), coords), coords, loops);
+    const id = out === idx ? (k: number) => ids[k] : (k: number) => toPlug.get(ids[k])!;
     for (const [a, b, c] of t) {
-      // clockwise seen from above
+      // clockwise seen from above (normal -z), or the reverse for `up`
       const cr = (coords[2 * b] - coords[2 * a]) * (coords[2 * c + 1] - coords[2 * a + 1]) - (coords[2 * b + 1] - coords[2 * a + 1]) * (coords[2 * c] - coords[2 * a]);
-      if (cr > 0) idx.push3(ids[a], ids[c], ids[b]);
-      else idx.push3(ids[a], ids[b], ids[c]);
+      if (cr > 0 !== up) out.push3(id(a), id(c), id(b));
+      else out.push3(id(a), id(b), id(c));
     }
   };
+  const islands = (i: number, ids: number[][]) => rings.flatMap((_, j) => (parent[j] === i ? [ids[j]] : []));
   // z0: the rectangle minus the letters, and each island minus any letters inside it
   face(inner, rings.flatMap((_, i) => (parent[i] < 0 ? [lo[i]] : [])));
   rings.forEach((_, i) => {
-    if (area[i] < 0) face(lo[i], rings.flatMap((_, j) => (parent[j] === i ? [lo[j]] : [])));
+    if (area[i] < 0) face(lo[i], islands(i, lo));
   });
-  // ceilings: each letter minus its islands
+  // ceilings: each letter minus its islands; the same triangles are the plug's top (+z) and bottom (-z)
   rings.forEach((_, i) => {
-    if (area[i] > 0) face(hi[i], rings.flatMap((_, j) => (parent[j] === i ? [hi[j]] : [])));
+    if (area[i] <= 0) return;
+    face(hi[i], islands(i, hi));
+    if (plug) {
+      face(hi[i], islands(i, hi), plug.idx, true);
+      face(lo[i], islands(i, lo), plug.idx, false);
+    }
   });
-  // walls face the ink side (the pocket), which is on the left of each ring
+  // walls face the ink side (the pocket), which is on the left of each ring; the plug's face the other way
   rings.forEach((_, i) => {
     const L = lo[i], U = hi[i], m = L.length;
     for (let k = 0; k < m; k++) {
       const k1 = (k + 1) % m;
       idx.push3(L[k], U[k1], L[k1]);
       idx.push3(L[k], U[k], U[k1]);
+      if (plug) {
+        const l = toPlug.get(L[k])!, l1 = toPlug.get(L[k1])!, u = toPlug.get(U[k])!, u1 = toPlug.get(U[k1])!;
+        plug.idx.push3(l, l1, u1);
+        plug.idx.push3(l, u1, u);
+      }
     }
   });
   return nv;

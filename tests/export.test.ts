@@ -1,6 +1,6 @@
 import { strFromU8, unzipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
-import { printSuffix, to3mf, toStl } from '../src/core/export';
+import { filamentSlots, printSuffix, to3mf, toStl } from '../src/core/export';
 import { buildModel, DEFAULT_MODEL } from '../src/core/model';
 import { validateMesh } from '../src/core/validate';
 
@@ -17,7 +17,7 @@ function sample() {
       routeLines: [Float64Array.from([1, 1, 5, 4, 9, 6])],
       markers: [{ xMm: 1, yMm: 1, kind: 'start' }],
     },
-    { ...DEFAULT_MODEL, routeOwnColor: true, markerColor: 'own', waterSurface: 'off' },
+    { ...DEFAULT_MODEL, routeOwnColor: true, markerColor: 'water', waterSurface: 'off' },
   ).parts;
 }
 
@@ -36,7 +36,7 @@ function parse3mf(bytes: Uint8Array) {
 describe('3MF', () => {
   it('writes named parts with Bambu settings and valid meshes', () => {
     const parts = sample();
-    const bytes = to3mf(parts, { title: 'Test ride', description: 'attribution', colors: { route: '#D02020' } });
+    const bytes = to3mf(parts, { title: 'Test ride', description: 'attribution', colors: { route: '#D02020', markers: '#D02020' } });
     const { files, xml, objects } = parse3mf(bytes);
     expect(Object.keys(files).sort()).toEqual(
       ['3D/3dmodel.model', 'Metadata/model_settings.config', '[Content_Types].xml', '_rels/.rels'].sort(),
@@ -49,6 +49,10 @@ describe('3MF', () => {
     const cfg = strFromU8(files['Metadata/model_settings.config']);
     expect(cfg).toContain('<object id="4">');
     expect(cfg).toMatch(/<part id="2" subtype="normal_part"><metadata key="name" value="route"\/><metadata key="extruder" value="2"\/>/);
+    // markers share the route's color, so they share its filament slot
+    expect(cfg).toMatch(/<part id="3" subtype="normal_part"><metadata key="name" value="markers"\/><metadata key="extruder" value="2"\/>/);
+    expect(filamentSlots(parts, { route: '#D02020', markers: '#d02020' })).toEqual([1, 2, 2]);
+    expect(filamentSlots(parts, { route: '#D02020' })).toEqual([1, 2, 3]);
     for (const o of objects) expect({ name: o.name, ...validateMesh(o.positions, o.indices) }).toMatchObject({ ok: true });
   });
 });

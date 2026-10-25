@@ -3,10 +3,26 @@ import type { Part, PartName } from './model';
 
 export const PART_LABELS: Record<PartName, string> = {
   terrain: 'terrain',
+  text: 'text',
   route: 'route',
-  water: 'water',
+  lakes: 'lakes',
+  rivers: 'rivers',
   markers: 'markers',
 };
+
+/**
+ * Filament slot (1-based) per part: parts with the same color share a slot, in order of first appearance,
+ * so "lakes same as water" and "text same as water" load as one filament.
+ */
+export function filamentSlots(parts: { name: PartName }[], colors: Partial<Record<PartName, string>>): number[] {
+  const seen: string[] = [];
+  return parts.map((p) => {
+    const c = (colors[p.name] ?? `#${p.name}`).toLowerCase();
+    let k = seen.indexOf(c);
+    if (k < 0) k = seen.push(c) - 1;
+    return k + 1;
+  });
+}
 
 /** File name ending for the print settings, e.g. 0.4 mm nozzle at 0.16 mm layers → "_0p4N_0p16L". */
 export function printSuffix(nozzleMm: number, layerMm: number): string {
@@ -139,6 +155,7 @@ export function to3mf(parts: Part[], opt: ThreeMfOptions): Uint8Array {
 
   const single = opt.layout === 'single';
   const asm = single ? 1 : parts.length + 1;
+  const slot = filamentSlots(parts, opt.colors);
   let item = '';
   if (opt.plate) {
     let mx = 0, my = 0;
@@ -188,7 +205,7 @@ export function to3mf(parts: Part[], opt: ThreeMfOptions): Uint8Array {
               `<volume firstid="${ranges[k][0]}" lastid="${ranges[k][1]}">` +
               `<metadata type="volume" key="name" value="${PART_LABELS[p.name]}"/>` +
               '<metadata type="volume" key="volume_type" value="ModelPart"/>' +
-              `<metadata type="volume" key="extruder" value="${k + 1}"/></volume>`,
+              `<metadata type="volume" key="extruder" value="${slot[k]}"/></volume>`,
           )
           .join('') +
         '</object></config>',
@@ -204,7 +221,7 @@ export function to3mf(parts: Part[], opt: ThreeMfOptions): Uint8Array {
         .map(
           (p, k) =>
             `<part id="${k + 1}" subtype="normal_part"><metadata key="name" value="${PART_LABELS[p.name]}"/>` +
-            `<metadata key="extruder" value="${k + 1}"/>${p.name === 'terrain' ? '' : solid}</part>`,
+            `<metadata key="extruder" value="${slot[k]}"/>${p.name === 'terrain' ? '' : solid}</part>`,
         )
         .join('') +
       '</object></config>',

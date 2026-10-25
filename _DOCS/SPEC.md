@@ -28,6 +28,7 @@ A free public static web app on GitHub Pages. It turns one or more GPX files int
 - Climb check (2026-10-25): Death Ride 12,966 ft in the app vs 13,045 ft on Strava (0.6%), so `CLIMB_HYSTERESIS_M` stays at 2 m.
 - Slicer focus is Bambu for now; OrcaSlicer and others later (Orca's CLI segfaults on this Mac, even on `--help`).
 - Test print pending: the coupons below, to check the label print-check limits and the river groove widths.
+- 2026-10-25 (later): color palette card, lakes / rivers / text as their own parts, color label inlay, Inter Semibold default, map preview in print colors, ride stats that skip recording gaps. 201 unit tests. Death Ride with every colored feature: 6 parts, all manifold, 3.7 s; the Bambu CLI slices it at 150 mm (its headless bed is smaller than 200 mm). Not yet checked in the Bambu app: that same-colored parts land on one filament slot (`model_settings.config` gives them the same extruder).
 
 ## Constraints
 
@@ -44,7 +45,9 @@ A free public static web app on GitHub Pages. It turns one or more GPX files int
 ### 1. GPX input
 - Multiple files by drag-drop or picker. Fast scan of `trkpt` lat/lon (and optional ele) and `wpt`.
 - Don't rely on `<time>`; Strava exports often lack it.
-- Climbing per file from `<ele>`: the sum of rises, with a 2 m hysteresis to ignore GPS jitter (`climbOf` in `gpx.ts`). Files without elevations give none. Death Ride: 3,952 m (12,966 ft); the published figure is about 15,000 ft, so this may read low against Strava. Kiran to compare.
+- Distance and climbing per file (`gpx.ts`): point-to-point haversine, and the sum of rises with a 2 m hysteresis to ignore GPS jitter (`climbOf`). Files without elevations give no climb.
+  - **Recording gaps** (`gapMask`): a step longer than max(100 m, 20 x the file's median spacing) means the device was off and came back on elsewhere. Neither the distance across it nor the elevation change (the barometer resets) counts. The printed route still bridges it with a straight line.
+  - Checked against Strava 2026-10-25: Death Ride 12,966 ft vs 13,045 (no gaps). SRMR (6 files, dozens of gaps per leg) was 1,243 mi / 113,553 ft before the gap rule and is 1,184 mi / 81,094 ft with it, against Strava's 1,170 mi / 81,915 ft.
 - Auto-order legs by matching ends to starts (haversine) and minimizing the total seam distance. Exact search for 8 legs or fewer, greedy beyond that. The order is shown and can be reordered by drag.
 - Spike filter: drop isolated A -> far -> A jumps of more than N km. Keep one-way gaps (dropouts), which print as straight lines.
 - Simplify each leg to about 0.1 mm at print scale.
@@ -96,7 +99,7 @@ A free public static web app on GitHub Pages. It turns one or more GPX files int
   - Waterlines: engraved lines following the shoreline at a fixed spacing, from a distance transform of the mask. This is the default texture.
   - Parallel lines: straight engraved lines at a set angle (degrees counter-clockwise from east-west, default 0).
   - Spacing, line width and depth are absolute mm.
-- Water color is set separately (same as terrain / own color), so a textured water surface can stay in the terrain material on a multi-color printer.
+- Lakes print in the terrain material (flattened, with the chosen texture) or as their own `lakes` part in the lake color (the Lake color checkbox). Rivers in the River color style are a `rivers` part. The colors themselves come from the palette (section 9).
 
 ### 5. Route
 - Rasterized to a mask: `lineWidth = route_width_mm / cell_mm`, with round caps and joins.
@@ -124,7 +127,8 @@ A free public static web app on GitHub Pages. It turns one or more GPX files int
 - Touching parts share identical surfaces, so they don't overlap and each is watertight.
   - Raised route: its bottom is the terrain top.
   - Flush route or own-color water: the terrain is lowered by the color-layer depth (default 0.6 mm), and that part fills back up to the surface.
-- Elements set to "same as terrain" are folded into the terrain part.
+- Elements set to "same as terrain" are folded into the terrain part. Parts (`PartName`): `terrain`, `text`, `route`, `lakes`, `rivers`, `markers`. Lakes and rivers are separate parts even when they share a color; the export gives same-colored parts one filament slot.
+- Markers join the `route` part when they print in the route color (same lowered layer as a flush route); any other palette color gives a `markers` part; the terrain color folds them in.
 - Terrain z = base_mm + (elev - elev_min) * vertical_scale, where vertical_scale = exaggeration / horizontal_scale.
   - Defaults: true scale (exaggeration 1x), base 3 mm.
   - Exaggeration (1 to 10x) sits under a collapsed **Advanced** in the Terrain card. The point of the print is the real ride, so heights are true to scale unless the user opts in.
@@ -148,16 +152,18 @@ A free public static web app on GitHub Pages. It turns one or more GPX files int
 - Validator: every undirected edge is used exactly twice in opposite directions, signed volume > 0, no degenerate triangles. It runs in the tests.
 
 ### 7b. Underside label
-- Text debossed into the terrain part's flat bottom. Off until there is a line of text.
+- Text in the terrain part's flat bottom. Off until there is a line of text. Two styles (`labelStyle`):
+  - **Debossed**: the letters are a pocket cut into the bottom.
+  - **Text color**: the same pocket, filled by a `text` part (a flush inlay). `pocketBottom` in `mesh.ts` writes the plug in the same pass: the letter ceilings as its top (+z), the letters minus their islands at z0 as its bottom, and the pocket walls reversed. Its vertices are its own copies of the ring points, pushed the same way, so every plug vertex sits exactly on a terrain vertex (a test checks this, and that the volumes add up to the plain slab). Needs a multi-color printer; single color debosses.
 - Lines:
   - the typed text (several lines; the placeholder is the ride name);
   - optional **Ride stats**: total distance of all files and total climbing, in km/m or mi/ft;
   - optional **Vertical exaggeration**: "Vertical exaggeration Nx", with "(true scale)" at 1x. It is the last line and prints smaller (`LabelSpec.small`):
     - 0.65 x the main size, raised to the smallest size that still rates Good for the nozzle (measured on that line at full size, since widths scale with size; rounded up to 0.1 mm), and never bigger than the main text;
     - when it is the only line, it is the main text, at full size;
-    - a note says when the line was held at the printable minimum. Inter Bold at the default 6 mm with a 0.4 mm nozzle only goes down to 5.7 mm; a thicker font or a bigger main size gives more room;
+    - a note says when the line was held at the printable minimum. with a 0.6 mm nozzle Inter's near-touching letters leave walls that need the full size, so the line stays at the main size;
     - the card's text preview shows it smaller too.
-- Fonts (`src/fonts.ts`, `labelFont`, default Inter): bold weights only, since thin strokes close up.
+- Fonts (`src/fonts.ts`, `labelFont`): Inter Semibold (600, the default since 2026-10-25), Inter Medium (500) and Inter Bold (700, id `inter`, kept for old links), plus the bold cuts of Atkinson, Nunito, Barlow Condensed, Roboto Slab and JetBrains Mono. Kiran's Bambu preview of Inter Bold at 4 to 7 mm was far too heavy: the counters nearly closed. Default size 5.5 mm (was 6).
   - The six fonts: Inter Bold, Atkinson Hyperlegible Bold (best small), Nunito ExtraBold (rounded), Barlow Condensed Bold (long names), Roboto Slab Bold, JetBrains Mono Bold.
   - Licences: all OFL except Roboto Slab (Apache-2.0). Packages are fontsource 5.3.0, latin WOFF, 14 to 31 KB each.
   - The worker fetches each font the first time it's used and parses it with opentype.js. The card's text preview is shown in the chosen font (FontFace API).
@@ -165,9 +171,9 @@ A free public static web app on GitHub Pages. It turns one or more GPX files int
 - Size is the capital-letter height in mm (default 6). Lines are 1.6 x the size apart; between lines of different sizes, 0.6 x the upper line's size plus the lower line's size.
 - Print check, measured from the built text (`thinnestPx` in `label.ts`): an area-weighted local thickness on the 0.05 mm bitmap, 5th percentile. Sharp notches and stroke tips don't count.
   - Groove: the thinnest letter stroke, which is a gap in the first layers. Wall: the thinnest plastic between strokes or inside counters, up to 2 mm.
-  - **Good** when groove ≥ 2 x nozzle and wall ≥ 1.5 x nozzle. **Tight** at ≥ 1 x for both. **Too fine** below that. The readout names which limit applies.
+  - **Good** when groove ≥ 1.5 x nozzle and wall ≥ 1.75 x nozzle (2026-10-25; was 2 / 1.5: the walls were what closed up in Kiran's print, not the grooves). **Tight** at ≥ 1 x for both. **Too fine** below that. The readout names which limit applies. Still unverified on a real print.
   - It suggests the size that reaches Good (widths scale with size, rounded up to 0.5 mm). If the text was shrunk to fit, it suggests fewer lines, a condensed font or a bigger print instead.
-  - Death Ride at 0.4 mm: Inter is Good from 5.5 mm (8 mm: groove 1.22, wall 0.85). Atkinson is Good at 6 mm.
+  - Death Ride at 0.4 mm: Inter Semibold is Good from 5.5 mm (groove 0.75, wall 0.85); Medium from 5.5 too (0.65 / 0.85); Bold 5.5 (0.85 / 0.75).
 - A collapsed **Tips for a clean deboss** list covers:
   - groove width;
   - elephant foot compensation;
@@ -194,11 +200,12 @@ A free public static web app on GitHub Pages. It turns one or more GPX files int
   - A dashed box over the text: drag it to move; drag a corner to scale (aspect kept, opposite corner fixed, size rounded to 0.5 mm, 2 to 40 mm). Orbiting still works outside the box.
   - While scaling, the box is colored by the print check at the size it would set: green Good, amber Tight, red Too fine. A tag above it shows that size ("4.5 mm · tight"). Dragging smaller than Good is allowed (2 mm hard floor).
     - The rating needs no rebuild: `labelWidthsAt` in `label.ts` predicts the thinnest groove and wall at any size from widths measured at the built size. Main lines scale with the size; the exaggeration line follows its own rule (held at its printable floor until the main text is smaller).
-    - The prediction is calibrated to match the measurement exactly at the built size, since the check is a percentile over the whole label's area. Elsewhere it stays within 0.08 mm (under 2 raster pixels) of what the rebuild then measures.
+    - The prediction is calibrated to match the measurement exactly at the built size, since the check is a percentile over the whole label's area. Elsewhere it stays within 0.2 mm (4 raster pixels) of what the rebuild then measures, and the error is pessimistic: the small line sits at its wall-driven floor, which rasterizes a little better than the linear prediction.
   - Only the box moves during the drag. On release, each axis snaps on its own: to Centered if the box center is within 3 mm of the center line (a dashed guide shows), else to the nearer edge with the gap rounded to 0.5 mm. The fields update and the model rebuilds.
 
 ### 8. Export
-- 3MF (primary): one object whose parts are `terrain`, `route`, `water` and `markers` (own-color elements only), in millimeters.
+- 3MF (primary): one object whose parts are `terrain`, `text`, `route`, `lakes`, `rivers` and `markers` (own-color elements only), in millimeters.
+  - Filament slot per part (`filamentSlots` in `export.ts`): parts with the same resolved color share a slot, in order of first appearance. Lakes and text "same as water" load as one filament with the water.
   - Placed in the middle of the chosen printer's plate (build item transform).
   - Attribution goes in the metadata.
   - Color parts get `sparse_infill_density 100%` in the Bambu config, so infill doesn't show through thin color layers.
@@ -213,14 +220,17 @@ A free public static web app on GitHub Pages. It turns one or more GPX files int
 ### 9. UI
 - Left panel:
   - files and leg order;
-  - printer (preset, type, slicer, nozzle, layer height);
+  - **Colors** (card 2): Multi-color / Single color, then the palette: Terrain, Water, Lakes (same as water / own), Rivers (same as water / own), Route, Text (same as water / same as route / own). Settings: `colors` (hex per entry), `lakesColor`, `riversColor`, `textColor`; `resolveColors` in `settings.ts` turns them into one hex per feature, everything terrain-colored on a single-color printer. A swatch in a feature card shows the resolved color and edits the palette entry it comes from (`paletteKeyFor`), so the two always agree. Markers pick Route / Terrain / Water / Text (`markerColor`; the old `own` value loads as Route; old 4-key `colors` links load with defaults for the new keys).
+  - printer (preset, slicer, nozzle, layer height);
   - crop edge length and units;
   - base, Advanced (smoothing with Auto, exaggeration);
-  - route (style, width, height, color);
-  - water (surface, texture, color);
-  - markers (sources, shape per kind, size, height above route, color);
-  - underside label (text, stats, exaggeration, font, size with print check, depth, Across / Up, Center, align, tips).
+  - route (style, width, height, own part);
+  - water (surface, texture, lake color on/off; river style, width);
+  - markers (sources, shape per kind, size, height above route, palette color);
+  - underside label (text, stats, exaggeration, style debossed / text color, font, size with print check, depth, Across / Up, Center, align, tips).
 - 2D map with the route and an editable crop rectangle, and the 3D three.js preview with orbit controls, part colors and dimensions.
+  - The map previews the print (`setPrintStyle` in `map.ts`, called from `refreshMap`): layers on the base style's own vector source, with the same filters as the build (`worker/water.ts`): lakes (polygons, not swimming pools or river areas), river areas, and narrow rivers (`waterway` lines of class river / canal, only when narrow rivers are on). The crop is tinted with the terrain color at 40%. Lakes that print as flattened terrain are drawn in the terrain color with a darker outline; grooved rivers in a darker terrain shade; own-color parts in their colors.
+  - Route and river lines are drawn at their print width: mm → ground metres via the frame's `mmPerGroundM`, then a zoom-stop expression (metres per pixel halve per zoom), floored at 1 px. A 0.4 mm river reads as a hairline, as it will print. Before a ride is loaded the widths are fixed pixels.
 - Builds never switch the view. A build that finishes while the map is showing puts a dot on the **3D preview** tab, cleared when it is opened. Only "Add pins on map" switches (to the map), since you click it.
 - Progress per stage: parsing, tiles N of M, meshing, exporting.
 - Settings, crop and manual markers are stored in the URL hash.

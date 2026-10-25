@@ -29,16 +29,35 @@
           <div id="ride-stats" class="muted small"></div>
         </section>
 
+        <section class="card" id="colors-card">
+          <h2>2 · Colors</h2>
+          <div class="row seg">
+            <label><input type="radio" name="mc" value="multi" /> Multi-color (AMS etc.)</label>
+            <label><input type="radio" name="mc" value="single" /> Single color</label>
+          </div>
+          <div class="palette">
+            <div class="row color-row"><span>Terrain</span><input type="color" data-color="terrain" /></div>
+            <div class="row color-row multi-only"><span>Water</span><input type="color" data-color="water" /></div>
+            <div class="row color-row multi-only sub-row"><span>Lakes</span>
+              <span><select data-k="lakesColor"><option value="water">Same as water</option><option value="own">Own color</option></select>
+              <input type="color" data-color="lakes" /></span></div>
+            <div class="row color-row multi-only sub-row"><span>Rivers</span>
+              <span><select data-k="riversColor"><option value="water">Same as water</option><option value="own">Own color</option></select>
+              <input type="color" data-color="rivers" /></span></div>
+            <div class="row color-row multi-only"><span>Route</span><input type="color" data-color="route" /></div>
+            <div class="row color-row multi-only"><span>Text</span>
+              <span><select data-k="textColor"><option value="water">Same as water</option><option value="route">Same as route</option><option value="own">Own color</option></select>
+              <input type="color" data-color="text" /></span></div>
+          </div>
+          <p class="muted small" id="colors-note">Each card below says whether its feature prints in its color or as part of the terrain. The map and the 3D preview show these colors.</p>
+        </section>
+
         <section class="card">
-          <h2>2 · Printer &amp; size</h2>
+          <h2>3 · Printer &amp; size</h2>
           <label class="row">Printer <select data-k="printer" id="printer"></select></label>
           <div class="row" id="custom-plate">
             Plate <input type="number" data-k="plateX" min="50" max="1000" step="1" /> ×
             <input type="number" data-k="plateY" min="50" max="1000" step="1" /> mm
-          </div>
-          <div class="row seg">
-            <label><input type="radio" name="mc" value="multi" /> Multi-color (AMS etc.)</label>
-            <label><input type="radio" name="mc" value="single" /> Single color</label>
           </div>
           <label class="row">Slicer
             <select data-k="slicer">
@@ -85,7 +104,7 @@
         </section>
 
         <section class="card">
-          <h2>3 · Crop</h2>
+          <h2>4 · Crop</h2>
           <p class="muted small">Drag the corners or the middle of the box on the map.</p>
           <div class="row">
             Margin <input type="number" data-k="marginPct" min="0" max="100" step="1" /> %
@@ -94,7 +113,7 @@
         </section>
 
         <section class="card">
-          <h2>4 · Terrain</h2>
+          <h2>5 · Terrain</h2>
           <p class="muted small">Heights are true to scale.</p>
           <label class="row">Base thickness <input type="number" data-k="baseMm" min="1" max="20" step="0.5" /> mm</label>
           <p class="note" id="relief-note"></p>
@@ -124,18 +143,18 @@
         </section>
 
         <section class="card">
-          <h2>5 · Route</h2>
+          <h2>6 · Route</h2>
           <label class="row">Style
             <select data-k="routeStyle"><option value="raised">Raised</option><option value="flush">Flush (color only)</option></select>
           </label>
           <label class="row">Width <input type="number" data-k="routeWidthMm" min="0.4" max="5" step="0.1" /> mm</label>
           <label class="row" id="route-height-row">Height <input type="number" data-k="routeHeightMm" min="0.2" max="5" step="0.1" /> mm</label>
-          <div class="row color-row"><label><input type="checkbox" data-k="routeOwnColor" /> Own color</label><input type="color" data-color="route" /></div>
+          <div class="row color-row"><label><input type="checkbox" data-k="routeOwnColor" /> Route color (own part)</label><input type="color" data-feature="route" /></div>
           <p id="route-note" class="note"></p>
         </section>
 
         <section class="card">
-          <h2>6 · Water</h2>
+          <h2>7 · Water</h2>
           <h3 class="sub">Lakes and sea</h3>
           <label class="row">Surface
             <select data-k="waterSurface">
@@ -149,18 +168,18 @@
             <div class="row lines-only">Line spacing <input type="number" data-k="waterLineSpacingMm" min="0.6" max="5" step="0.1" /> mm</div>
             <div class="row parallel-only">Line angle <input type="number" data-k="waterLineAngleDeg" min="0" max="179" step="15" /> ° from east-west</div>
             <div class="row lines-only">Line width <input type="number" data-k="waterLineWidthMm" min="0.2" max="2" step="0.05" /> depth <input type="number" data-k="waterLineDepthMm" min="0.2" max="1.5" step="0.1" /> mm</div>
-            <div class="row color-row"><label><input type="checkbox" data-k="waterOwnColor" /> Own color</label><input type="color" data-color="water" /></div>
+            <div class="row color-row"><label><input type="checkbox" data-k="waterOwnColor" /> Lake color (own part)</label><input type="color" data-feature="lakes" /></div>
           </div>
           <h3 class="sub">Rivers</h3>
           <label class="row">Style
             <select data-k="riverStyle">
               <option value="off">Off</option>
               <option value="groove">Groove (a channel, follows the terrain)</option>
-              <option value="color">Water color (flush, follows the terrain)</option>
+              <option value="color">River color (flush, follows the terrain)</option>
             </select>
           </label>
           <div class="river-opts">
-            <div class="row color-only color-row">Water color <input type="color" data-color="water" /></div>
+            <div class="row color-only color-row">River color <input type="color" data-feature="rivers" /></div>
             <div class="row groove-only">Groove depth <input type="number" data-k="riverDepthMm" min="0.2" max="1.5" step="0.1" /> mm</div>
             <div class="row"><label><input type="checkbox" data-k="rivers" /> Include narrow rivers</label> <input type="number" data-k="riverWidthMm" min="0.3" max="3" step="0.1" /> mm wide</div>
             <p class="muted small">Wide rivers (mapped as areas) are always included. Narrow ones are lines in the map data, drawn at the width you set.</p>
@@ -169,7 +188,7 @@
         </section>
 
         <section class="card">
-          <h2>7 · Markers</h2>
+          <h2>8 · Markers</h2>
           <div class="row"><label><input type="checkbox" data-k="markersOn" /> Show markers</label></div>
           <div class="marker-opts">
             <div class="row wrap">
@@ -192,12 +211,13 @@
             <div class="row color-row">
               <label>Color
                 <select data-k="markerColor">
-                  <option value="route">Same as route</option>
-                  <option value="terrain">Same as terrain</option>
-                  <option value="own">Own color</option>
+                  <option value="route">Route color</option>
+                  <option value="terrain">Terrain color</option>
+                  <option value="water">Water color</option>
+                  <option value="text">Text color</option>
                 </select>
               </label>
-              <input type="color" data-color="markers" id="marker-color-swatch" />
+              <input type="color" data-feature="markers" />
             </div>
             <p id="marker-note" class="note"></p>
             <p class="muted small">Markers are flat-topped and raised. Checkpoints are leg joins and your pins. Start and finish are drawn larger.</p>
@@ -205,8 +225,18 @@
         </section>
 
         <section class="card">
-          <h2>8 · Underside label</h2>
-          <p class="muted small">Text pressed into the bottom of the print. Check it with Underside in the 3D preview.</p>
+          <h2>9 · Underside label</h2>
+          <p class="muted small">Text in the bottom of the print. Check it with Underside in the 3D preview.</p>
+          <div class="row color-row">
+            <label>Style
+              <select data-k="labelStyle">
+                <option value="deboss">Debossed (cut into the bottom)</option>
+                <option value="color">Text color (flush inlay)</option>
+              </select>
+            </label>
+            <input type="color" data-feature="text" id="label-color-swatch" />
+          </div>
+          <p id="label-style-note" class="note"></p>
           <label class="row label-text">Text <textarea data-k="labelText" rows="2" placeholder="Ride name"></textarea></label>
           <div class="row wrap">
             <label><input type="checkbox" data-k="labelStats" /> Ride stats</label>
@@ -265,7 +295,7 @@
 
         </div>
         <section class="card export">
-          <h2>9 · Export</h2>
+          <h2>10 · Export</h2>
           <label class="row">Name <input type="text" data-k="title" placeholder="Model name" /></label>
           <div class="row">
             <button id="generate" type="button" class="primary">Generate model</button>

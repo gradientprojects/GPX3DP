@@ -233,6 +233,28 @@ describe('debossed bottom', () => {
       expect(zMax).toBeCloseTo(0.6, 5);
     });
 
+  for (const lines of [['Death Ride 2025'], ['O8a@%&', 'two lines', 'iii lll']])
+    it(`color inlay fills the pocket exactly: ${lines.join(' / ')}`, () => {
+      const g = layoutLabel(font, spec(lines, { sizeMm: 4 }), W * cell, H * cell)!;
+      const m = buildSlab(W, H, cell, flat(3), flat(0), level, true, undefined, undefined, { ...g, depth: 0.6, plug: true });
+      const plain = buildSlab(W, H, cell, flat(3), flat(0), level, true);
+      const plug = m.plug!;
+      const t = validateMesh(m.positions, m.indices), p = validateMesh(plug.positions, plug.indices);
+      expect(t).toMatchObject({ ok: true });
+      expect(p).toMatchObject({ ok: true });
+      expect(foldCheck(plug.positions, plug.indices)).toMatchObject({ ok: true });
+      // the plug is exactly the volume the pocket took out of the slab
+      expect(t.volume + p.volume).toBeCloseTo(validateMesh(plain.positions, plain.indices).volume, 2);
+      let zMin = Infinity, zMax = -Infinity;
+      for (let i = 2; i < plug.positions.length; i += 3) (zMin = Math.min(zMin, plug.positions[i])), (zMax = Math.max(zMax, plug.positions[i]));
+      expect(zMin).toBe(0);
+      expect(zMax).toBeCloseTo(0.6, 5);
+      // every plug vertex sits exactly on a terrain vertex, so the two parts are watertight against each other
+      const terrainPts = new Set<string>();
+      for (let i = 0; i < m.positions.length; i += 3) terrainPts.add(`${m.positions[i]},${m.positions[i + 1]},${m.positions[i + 2]}`);
+      for (let i = 0; i < plug.positions.length; i += 3) expect(terrainPts.has(`${plug.positions[i]},${plug.positions[i + 1]},${plug.positions[i + 2]}`)).toBe(true);
+    });
+
   it('closed when an earcut bridge runs through a ring vertex (T-junction)', () => {
     // found in the browser: this exact layout on a 200 x 133.5 mm print left 3 open edges
     const lines = ['Death Ride 2025', '104 mi · 12,966 ft climbing', 'Vertical exaggeration 1× (true scale)'];
@@ -250,7 +272,7 @@ describe('debossed bottom', () => {
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if ((x - 80) ** 2 + (y - 40) ** 2 < 300) water[y * W + x] = 1;
     const g = layoutLabel(font, spec(['Death Ride', '103 mi · 15,000 ft']), W * cell, H * cell)!;
     const routeLines = [Float64Array.from([2, 2, 30, 20, 58, 38])];
-    for (const c of [{}, { routeStyle: 'flush' as const }, { waterOwnColor: true, waterSurface: 'flat' as const }, { markerColor: 'own' as const }]) {
+    for (const c of [{}, { routeStyle: 'flush' as const }, { waterOwnColor: true, waterSurface: 'flat' as const }, { markerColor: 'water' as const }]) {
       const s: ModelSettings = { ...DEFAULT_MODEL, ...c };
       const { parts, stats } = buildModel(
         { W, H, cellMm: cell, elevation: E, mmPerGroundM: 0.002, routeLines, waterMask: water, markers: [{ xMm: 30, yMm: 20, kind: 'start' }], label: g },

@@ -68,6 +68,10 @@ input[type='number'], input[type='text'], select {
 }
 input[type='color'] { width: 36px; height: 26px; border: 1px solid var(--line); border-radius: 6px; padding: 1px; background: var(--field); }
 .color-row { justify-content: space-between; }
+.color-row > span:last-child { display: inline-flex; align-items: center; gap: 6px; }
+.palette .sub-row > span:first-child { padding-left: 16px; color: var(--muted); }
+.palette .sub-row > span:first-child::before { content: '↳ '; }
+.palette .multi-only[data-single] { opacity: 0.45; pointer-events: none; }
 output { min-width: 2.5em; text-align: right; font-variant-numeric: tabular-nums; }
 button { border: 1px solid var(--line); background: var(--field); border-radius: 6px; padding: 6px 10px; cursor: pointer; }
 button:disabled { opacity: 0.45; cursor: default; }

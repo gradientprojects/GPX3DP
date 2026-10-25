@@ -26,6 +26,40 @@ export interface MapCallbacks {
 
 const empty = { type: 'FeatureCollection', features: [] } as GeoJSON.FeatureCollection;
 
+/** What the print will look like, drawn on the map: colors as hex, widths in print mm (`setPrintStyle`). */
+export interface PrintStyle {
+  terrain: string;
+  /** null: lakes are not in the print */
+  lakes: string | null;
+  /** lakes in the terrain color get an outline so they still show */
+  lakesOutlined: boolean;
+  /** null: no rivers; areas and (when `riverLines`) narrow rivers */
+  rivers: string | null;
+  riverLines: boolean;
+  route: string;
+  routeWidthMm: number;
+  riverWidthMm: number;
+  /** print scale; null before a ride is loaded (fixed pixel widths then) */
+  mmPerGroundM: number | null;
+  /** latitude the scale is measured at */
+  lat: number;
+}
+
+/** darker version of a hex color, for grooves and outlines */
+export const darker = (hex: string, f = 0.7) => '#' + [1, 3, 5].map((i) => Math.round(parseInt(hex.slice(i, i + 2), 16) * f).toString(16).padStart(2, '0')).join('');
+
+/**
+ * Line width in screen pixels for a width in metres on the ground: metres per pixel halve with every zoom
+ * level, so an exponential ramp between integer zooms is exact. At least `minPx`, so hairlines stay visible,
+ * plus `extraPx` (for a casing). MapLibre only takes "zoom" at the top of an interpolate, hence the stops.
+ */
+function groundWidthPx(metres: number, lat: number, minPx = 1, extraPx = 0): maplibregl.ExpressionSpecification {
+  const mpp0 = 156543.03392 * Math.cos((lat * Math.PI) / 180);
+  const stops: number[] = [];
+  for (let z = 0; z <= 24; z++) stops.push(z, Math.max(minPx, (metres * 2 ** z) / mpp0) + extraPx);
+  return ['interpolate', ['exponential', 2], ['zoom'], ...stops];
+}
+
 /** 2D map: route, editable crop rectangle (corner + move handles), and marker pins. */
 export class MapView {
   map: maplibregl.Map;
@@ -50,6 +84,36 @@ export class MapView {
       const m = this.map;
       m.addSource('route', { type: 'geojson', data: empty });
       m.addSource('crop', { type: 'geojson', data: empty });
+      // the print's own look, on the base style's vector source (same data the build reads, see worker/water.ts)
+      const src = m.getLayer('water')?.source ?? 'openmaptiles';
+      const polygon: maplibregl.ExpressionSpecification = ['==', ['geometry-type'], 'Polygon'];
+      m.addLayer({ id: 'print-terrain', type: 'fill', source: 'crop', filter: ['==', ['get', 'role'], 'inside'], paint: { 'fill-color': '#ccc', 'fill-opacity': 0.4 } });
+      m.addLayer({
+        id: 'print-lakes',
+        type: 'fill',
+        source: src,
+        'source-layer': 'water',
+        filter: ['all', polygon, ['!=', ['get', 'class'], 'swimming_pool'], ['!=', ['get', 'class'], 'river']],
+        paint: { 'fill-color': '#3a78c2', 'fill-opacity': 0.9 },
+      });
+      m.addLayer({
+        id: 'print-lakes-outline',
+        type: 'line',
+        source: src,
+        'source-layer': 'water',
+        filter: ['all', polygon, ['!=', ['get', 'class'], 'swimming_pool'], ['!=', ['get', 'class'], 'river']],
+        paint: { 'line-color': '#000', 'line-width': 1, 'line-opacity': 0.5 },
+      });
+      m.addLayer({ id: 'print-river-areas', type: 'fill', source: src, 'source-layer': 'water', filter: ['all', polygon, ['==', ['get', 'class'], 'river']], paint: { 'fill-color': '#3a78c2', 'fill-opacity': 0.9 } });
+      m.addLayer({
+        id: 'print-rivers',
+        type: 'line',
+        source: src,
+        'source-layer': 'waterway',
+        filter: ['all', ['==', ['geometry-type'], 'LineString'], ['in', ['get', 'class'], ['literal', ['river', 'canal']]]],
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: { 'line-color': '#3a78c2', 'line-width': 1.5, 'line-opacity': 0.9 },
+      });
       m.addLayer({ id: 'crop-shade', type: 'fill', source: 'crop', filter: ['==', ['get', 'role'], 'outside'], paint: { 'fill-color': '#000', 'fill-opacity': 0.25 } });
       m.addLayer({ id: 'crop-line', type: 'line', source: 'crop', filter: ['==', ['get', 'role'], 'box'], paint: { 'line-color': '#d23a2a', 'line-width': 2 } });
       m.addLayer({ id: 'route-casing', type: 'line', source: 'route', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#fff', 'line-width': 5 } });
@@ -149,6 +213,7 @@ export class MapView {
       type: 'FeatureCollection',
       features: [
         { type: 'Feature', properties: { role: 'box' }, geometry: { type: 'LineString', coordinates: ring } },
+        { type: 'Feature', properties: { role: 'inside' }, geometry: { type: 'Polygon', coordinates: [ring] } },
         {
           type: 'Feature',
           properties: { role: 'outside' },
@@ -163,6 +228,31 @@ export class MapView {
     });
     this.mover.setLngLat([(b.west + b.east) / 2, (b.south + b.north) / 2]);
     if (!this.mover.getElement().isConnected) this.mover.addTo(this.map);
+  }
+
+  /** Recolor the print layers and set their widths to what they will be in the print. */
+  async setPrintStyle(p: PrintStyle) {
+    await this.ready;
+    const m = this.map;
+    const show = (id: string, on: boolean) => m.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none');
+    const width = (mm: number, px: number, extra = 0) => (p.mmPerGroundM ? groundWidthPx(mm / p.mmPerGroundM, p.lat, 1, extra) : px + extra);
+    m.setPaintProperty('print-terrain', 'fill-color', p.terrain);
+    show('print-lakes', p.lakes !== null);
+    show('print-lakes-outline', p.lakes !== null && p.lakesOutlined);
+    if (p.lakes) {
+      m.setPaintProperty('print-lakes', 'fill-color', p.lakes);
+      m.setPaintProperty('print-lakes-outline', 'line-color', darker(p.lakes));
+    }
+    show('print-river-areas', p.rivers !== null);
+    show('print-rivers', p.rivers !== null && p.riverLines);
+    if (p.rivers) {
+      m.setPaintProperty('print-river-areas', 'fill-color', p.rivers);
+      m.setPaintProperty('print-rivers', 'line-color', p.rivers);
+      m.setPaintProperty('print-rivers', 'line-width', width(p.riverWidthMm, 1.5));
+    }
+    m.setPaintProperty('route', 'line-color', p.route);
+    m.setPaintProperty('route', 'line-width', width(p.routeWidthMm, 2.5));
+    m.setPaintProperty('route-casing', 'line-width', width(p.routeWidthMm, 2.5, 2.5));
   }
 
   async setPins(pins: MapPin[]) {

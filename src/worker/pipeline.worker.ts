@@ -124,6 +124,8 @@ self.onmessage = async (ev: MessageEvent<ToWorker>) => {
           routeOwnColor: false,
           waterOwnColor: false,
           markerColor: 'terrain',
+          riverStyle: lastBuild.model.riverStyle === 'color' ? 'groove' : lastBuild.model.riverStyle,
+          labelStyle: 'deboss',
         }).parts;
         files.push({ name: `${name}_single${m.suffix}.stl`, data: toStl(merged, 'GPX3DP merged') });
       }

@@ -191,6 +191,8 @@ export class Preview {
       (m.material as THREE.Material).dispose();
     }
     this.group.clear();
+    // a text inlay covers the pocket, so there is nothing to shade
+    const inlay = parts.some((p) => p.name === 'text');
     for (const p of parts) {
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.BufferAttribute(p.positions, 3));
@@ -198,7 +200,7 @@ export class Preview {
       g.computeVertexNormals();
       // shade the underside label's pocket darker so it reads in the preview: the only terrain vertices
       // strictly between the bottom and the label depth (everything else is at 0 or above the depth cap)
-      const shadeLabel = p.name === 'terrain' && labelDepthMm > 0;
+      const shadeLabel = p.name === 'terrain' && labelDepthMm > 0 && !inlay;
       if (shadeLabel) {
         const c = new Float32Array(p.positions.length).fill(1);
         for (let i = 2; i < p.positions.length; i += 3) {

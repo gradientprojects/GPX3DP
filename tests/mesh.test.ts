@@ -111,7 +111,7 @@ for (const routeStyle of ['raised', 'flush'] as const)
   for (const routeOwnColor of [true, false])
     for (const waterSurface of ['off', 'flat', 'waterlines', 'parallel'] as const)
       for (const waterOwnColor of [false, true])
-        for (const markerColor of ['terrain', 'route', 'own'] as const) {
+        for (const markerColor of ['terrain', 'route', 'water'] as const) {
           if (routeStyle === 'flush' && !routeOwnColor) continue;
           combos.push({ routeStyle, routeOwnColor, waterSurface, waterOwnColor, markerColor });
         }
@@ -154,8 +154,8 @@ describe('buildModel', () => {
       const names = parts.map((p) => p.name);
       expect(names[0]).toBe('terrain');
       if (c.routeOwnColor) expect(names).toContain('route');
-      if (c.waterOwnColor && c.waterSurface !== 'off') expect(names).toContain('water');
-      if (c.markerColor === 'own') expect(names).toContain('markers');
+      if (c.waterOwnColor && c.waterSurface !== 'off') expect(names).toContain('lakes');
+      if (c.markerColor === 'water') expect(names).toContain('markers');
       else expect(names).not.toContain('markers');
       for (const p of parts) {
         const r = validateMesh(p.positions, p.indices);
@@ -190,7 +190,7 @@ describe('buildModel', () => {
               { W, H, cellMm: cell, elevation: terrain(W, H, 7), mmPerGroundM: 0.004, routeLines, waterMask: withRiver, markers: [{ xMm: 5, yMm: 5, kind: 'start' }] },
               s,
             );
-            if (riverStyle === 'color') expect(parts.map((p) => p.name)).toContain('water');
+            if (riverStyle === 'color') expect(parts.map((p) => p.name)).toContain('rivers');
             for (const p of parts) {
               expect({ part: p.name, ...validateMesh(p.positions, p.indices) }).toMatchObject({ part: p.name, ok: true });
               expect({ part: p.name, ...foldCheck(p.positions, p.indices) }).toMatchObject({ ok: true });
@@ -257,7 +257,7 @@ describe('buildModel', () => {
     for (let y = 0; y <= H; y++) for (let x = 0; x <= W; x++) E[y * (W + 1) + x] = 1000 + y * 10;
     const mmPerGroundM = 0.0125;
     for (const shape of ['circle', 'square', 'triangle', 'diamond'] as const) {
-      const s = { ...DEFAULT_MODEL, waterSurface: 'off' as const, smoothMm: 0, markerColor: 'own' as const, markerShapeCheckpoint: shape };
+      const s = { ...DEFAULT_MODEL, waterSurface: 'off' as const, smoothMm: 0, markerColor: 'water' as const, markerShapeCheckpoint: shape };
       const { parts } = buildModel(
         { W, H, cellMm: cell, elevation: E, mmPerGroundM, routeLines: [Float64Array.from([1, 5, 9, 5])], markers: [{ xMm: 5, yMm: 5, kind: 'checkpoint' }] },
         s,
@@ -304,7 +304,7 @@ describe('buildModel', () => {
 
   it('square markers get sharp corners', () => {
     const W = 40, H = 40, cell = 0.25;
-    const s = { ...DEFAULT_MODEL, waterSurface: 'off' as const, smoothMm: 0, markerColor: 'own' as const, markerShapeCheckpoint: 'square' as const };
+    const s = { ...DEFAULT_MODEL, waterSurface: 'off' as const, smoothMm: 0, markerColor: 'water' as const, markerShapeCheckpoint: 'square' as const };
     // off-grid center so the raster is uneven
     const cx = 5.13, cy = 4.92;
     const { parts } = buildModel(
@@ -333,7 +333,7 @@ describe('buildModel', () => {
         routeOwnColor: true,
         waterSurface: (['flat', 'waterlines', 'parallel'] as const)[k % 3],
         waterOwnColor: k % 3 !== 1,
-        markerColor: (['terrain', 'route', 'own'] as const)[k % 3],
+        markerColor: (['terrain', 'route', 'water'] as const)[k % 3],
         markerShapeCheckpoint: (['circle', 'square', 'triangle', 'diamond'] as const)[k % 4],
         markerShapeWaypoint: (['diamond', 'triangle', 'square', 'circle'] as const)[k % 4],
         waterLineSpacingMm: 0.6,

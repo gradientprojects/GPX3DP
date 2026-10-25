@@ -4,7 +4,12 @@ import { DEFAULT_MODEL, type ModelSettings } from './core/model';
 import type { Bounds, Edge } from './core/project';
 
 export type Slicer = 'bambu' | 'prusa';
-export type PartColors = { terrain: string; route: string; water: string; markers: string };
+/** The palette: every color the print can use, as hex. Lakes, rivers and text only apply when set to 'own'. */
+export type Palette = { terrain: string; water: string; route: string; lakes: string; rivers: string; text: string };
+export type PaletteKey = keyof Palette;
+/** everything that has a color, resolved to hex (`resolveColors`) */
+export type ColorFeature = PaletteKey | 'markers';
+export type ResolvedColors = Record<ColorFeature, string>;
 
 export interface AppSettings extends ModelSettings {
   title: string;
@@ -32,7 +37,11 @@ export interface AppSettings extends ModelSettings {
   pinStartFinish: boolean;
   /** manual pins, [lat, lon] */
   pins: [number, number][];
-  colors: PartColors;
+  colors: Palette;
+  /** lakes and rivers follow the water color unless set to their own; text follows water or the route */
+  lakesColor: 'water' | 'own';
+  riversColor: 'water' | 'own';
+  textColor: 'water' | 'route' | 'own';
   /** underside label: typed lines, plus optional stats and exaggeration lines */
   labelText: string;
   labelStats: boolean;
@@ -70,7 +79,10 @@ export const DEFAULTS: AppSettings = {
   pinWaypoints: true,
   pinStartFinish: true,
   pins: [],
-  colors: { terrain: '#d9d4c7', route: '#d23a2a', water: '#3a78c2', markers: '#f2b705' },
+  colors: { terrain: '#d9d4c7', water: '#3a78c2', route: '#d23a2a', lakes: '#3a78c2', rivers: '#3a78c2', text: '#3a78c2' },
+  lakesColor: 'water',
+  riversColor: 'water',
+  textColor: 'water',
   labelText: '',
   labelStats: false,
   labelExag: false,
@@ -110,7 +122,31 @@ export function roundToLayers<T extends ModelSettings>(m: T, layer: number): T {
 }
 
 /** Settings that change only how the model is shared/exported, not the geometry. */
-export const NON_GEOMETRY: (keyof AppSettings)[] = ['title', 'units', 'colors', 'slicer'];
+export const NON_GEOMETRY: (keyof AppSettings)[] = ['title', 'units', 'colors', 'lakesColor', 'riversColor', 'textColor', 'slicer'];
+
+/** The palette entry a feature's color comes from, so a swatch in that feature's card edits the palette. */
+export function paletteKeyFor(s: Pick<AppSettings, 'lakesColor' | 'riversColor' | 'textColor' | 'markerColor'>, f: ColorFeature): PaletteKey {
+  switch (f) {
+    case 'lakes':
+      return s.lakesColor === 'own' ? 'lakes' : 'water';
+    case 'rivers':
+      return s.riversColor === 'own' ? 'rivers' : 'water';
+    case 'text':
+      return s.textColor === 'own' ? 'text' : s.textColor;
+    case 'markers':
+      return s.markerColor === 'text' ? paletteKeyFor(s, 'text') : s.markerColor;
+    default:
+      return f;
+  }
+}
+
+/** Every feature's color as hex. A single-color printer prints everything in the terrain color. */
+export function resolveColors(s: Pick<AppSettings, 'colors' | 'multiColor' | 'lakesColor' | 'riversColor' | 'textColor' | 'markerColor'>): ResolvedColors {
+  const keys: ColorFeature[] = ['terrain', 'water', 'route', 'lakes', 'rivers', 'text', 'markers'];
+  const out = {} as ResolvedColors;
+  for (const k of keys) out[k] = s.multiColor ? s.colors[paletteKeyFor(s, k)] : s.colors.terrain;
+  return out;
+}
 
 // URL hash: only values that differ from the defaults, as base64url JSON. GPX data is never included.
 export function toHash(s: AppSettings): string {
@@ -132,6 +168,10 @@ export function fromHash(hash: string): AppSettings {
     const d = JSON.parse(json) as Partial<AppSettings>;
     for (const k of Object.keys(d) as (keyof AppSettings)[])
       if (k in DEFAULTS && typeof d[k] === typeof DEFAULTS[k] || (k === 'crop' && d[k])) (s as unknown as Record<string, unknown>)[k] = d[k];
+    // links from before the palette: fewer color keys, and markers had a color of their own
+    const given = d.colors as Partial<Palette> | undefined;
+    s.colors = Object.fromEntries((Object.keys(DEFAULTS.colors) as PaletteKey[]).map((k) => [k, given?.[k] ?? DEFAULTS.colors[k]])) as Palette;
+    if ((d.markerColor as string) === 'own') s.markerColor = 'route';
   } catch {
     /* ignore a broken hash */
   }

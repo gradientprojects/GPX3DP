@@ -7,11 +7,18 @@ export type WaterSurface = 'off' | 'flat' | 'waterlines' | 'parallel';
 export type RiverStyle = 'off' | 'groove' | 'color';
 /** water mask codes (`ModelInput.waterMask`) */
 export const WATER_LAKE = 1, WATER_RIVER = 2;
-export type PartName = 'terrain' | 'route' | 'water' | 'markers';
+/**
+ * Mesh parts: one per feature that can have its own color. Lakes and rivers are separate parts even when they
+ * share a color (the export gives same-colored parts one filament slot). `text` is the underside label as an
+ * inlay. The route part also holds markers that print in the route color.
+ */
+export type PartName = 'terrain' | 'text' | 'route' | 'lakes' | 'rivers' | 'markers';
 export type MarkerKind = 'start' | 'finish' | 'checkpoint' | 'waypoint';
 export type MarkerShape = 'circle' | 'square' | 'triangle' | 'diamond';
-/** Which part markers print in. 'route' falls back to the terrain when the route has no own color. */
-export type MarkerColor = 'terrain' | 'route' | 'own';
+/** Which palette color markers print in. 'route' falls back to the terrain when the route has no own color. */
+export type MarkerColor = 'terrain' | 'route' | 'water' | 'text';
+/** underside label: letters cut into the bottom, or a flush inlay in the text color */
+export type LabelStyle = 'deboss' | 'color';
 
 export interface ModelSettings {
   baseMm: number;
@@ -43,8 +50,9 @@ export interface ModelSettings {
   markerShapeWaypoint: MarkerShape;
   /** thickness of a colored layer that sits in the terrain (flush route, own-color water) */
   colorDepthMm: number;
-  /** how deep the underside label is cut into the bottom */
+  /** how deep the underside label is cut into the bottom (or how thick the inlay is) */
   labelDepthMm: number;
+  labelStyle: LabelStyle;
 }
 
 export const DEFAULT_MODEL: ModelSettings = {
@@ -73,6 +81,7 @@ export const DEFAULT_MODEL: ModelSettings = {
   markerShapeWaypoint: 'diamond',
   colorDepthMm: 0.6,
   labelDepthMm: 0.6,
+  labelStyle: 'deboss',
 };
 
 export interface MarkerPin {
@@ -130,11 +139,11 @@ interface PartDef {
   bot: (label: number) => number;
 }
 
-/** The part that marker cells belong to. */
+/** The part that marker cells belong to: the route part shares its color, other palette colors get a part of their own. */
 function markerPart(s: ModelSettings): PartName {
-  if (s.markerColor === 'own') return 'markers';
-  if (s.markerColor === 'route' && s.routeOwnColor) return 'route';
-  return 'terrain';
+  if (s.markerColor === 'terrain') return 'terrain';
+  if (s.markerColor === 'route') return s.routeOwnColor ? 'route' : 'terrain';
+  return 'markers';
 }
 
 /** A marker outline in cell units: a circle, or a convex polygon (interleaved x,y, counter-clockwise). */
@@ -366,13 +375,8 @@ function partDefs(s: ModelSettings): PartDef[] {
       top: (l) => (l === ROUTE ? (raised ? R : Z) : l === MARKER && mk === 'route' ? M : NONE),
       bot: () => (raised ? Z : ZCD),
     });
-  const lakesOwn = waterOn && s.waterOwnColor;
-  if (lakesOwn || riverColor)
-    defs.push({
-      name: 'water',
-      top: (l) => (lakesOwn && l === WATER ? Z : lakesOwn && l === WLINE ? ZE : riverColor && l === RIVER ? Z : NONE),
-      bot: () => ZCD,
-    });
+  if (waterOn && s.waterOwnColor) defs.push({ name: 'lakes', top: (l) => (l === WATER ? Z : l === WLINE ? ZE : NONE), bot: () => ZCD });
+  if (riverColor) defs.push({ name: 'rivers', top: (l) => (l === RIVER ? Z : NONE), bot: () => ZCD });
   if (s.markersOn && mk === 'markers')
     defs.push({ name: 'markers', top: (l) => (l === MARKER ? M : NONE), bot: () => Z });
   return defs;
@@ -599,7 +603,8 @@ export function buildModel(input: ModelInput, s: ModelSettings): { parts: Part[]
 
   // the label stays at least 0.4 mm below the lowest colored layer or water line
   const labelDepthMm = input.label?.rings.length ? Math.max(0.2, Math.min(s.labelDepthMm, base - colorDepth - 0.4)) : 0;
-  const pocket = labelDepthMm ? { ...input.label!, depth: labelDepthMm } : undefined;
+  // a color label is the same pocket, filled by a `text` part that shares its vertices
+  const pocket = labelDepthMm ? { ...input.label!, depth: labelDepthMm, plug: s.labelStyle === 'color' } : undefined;
 
   const parts: Part[] = [];
   for (const d of defs) {
@@ -613,7 +618,9 @@ export function buildModel(input: ModelInput, s: ModelSettings): { parts: Part[]
     }
     if (!any) continue;
     const terrain = d.name === 'terrain';
-    parts.push({ name: d.name, ...buildSlab(W, H, cell, top, bot, level, terrain, offset, diag, terrain ? pocket : undefined) });
+    const { plug, ...mesh } = buildSlab(W, H, cell, top, bot, level, terrain, offset, diag, terrain ? pocket : undefined);
+    parts.push({ name: d.name, ...mesh });
+    if (plug) parts.push({ name: 'text', ...plug });
   }
   let maxH = 0;
   for (const p of parts) for (let i = 2; i < p.positions.length; i += 3) maxH = Math.max(maxH, p.positions[i]);
