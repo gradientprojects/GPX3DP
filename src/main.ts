@@ -296,9 +296,7 @@ async function loadFiles(files: File[]) {
   if (res.errors.length) toast(res.errors.join('\n'));
   for (const l of res.legs) {
     legs.push(l);
-    let km = 0;
-    for (let i = 1; i < l.lat.length; i++) km += haversineKm(l.lat[i - 1], l.lon[i - 1], l.lat[i], l.lon[i]);
-    legKm.push(km);
+    legKm.push(l.distKm);
   }
   order = orderLegs(legs.map((l) => ({ startLat: l.lat[0], startLon: l.lon[0], endLat: l.lat[l.lat.length - 1], endLon: l.lon[l.lon.length - 1] }))).order;
   if (!S.title) ($('[data-k="title"]') as HTMLInputElement).placeholder = legs[order[0]]?.name ?? 'Model name';

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { haversineKm } from '../src/core/geo';
-import { climbOf, parseGpx } from '../src/core/gpx';
+import { climbOf, gapMask, parseGpx } from '../src/core/gpx';
 import { orderLegs } from '../src/core/order';
 import { fitToPlate } from '../src/core/printers';
 import { makeFrame, toMmX, toMmY } from '../src/core/project';
@@ -60,6 +60,21 @@ describe('gpx', () => {
     expect(c).toBeLessThanOrEqual(101);
     const pts = hill.map((e, i) => `<trkpt lat="1" lon="${i * 1e-4}"><ele>${e}</ele></trkpt>`).join('');
     expect(parseGpx(`<gpx><trk><trkseg>${pts}</trkseg></trk></gpx>`, 'h.gpx').climbM).toBeCloseTo(100, 0);
+  });
+  it('recording gaps count neither as distance nor as climbing', () => {
+    // 1000 points 3 m apart heading east at the equator, a 2 km gap with a 150 m altimeter reset, 1000 more
+    const dLon = 3 / 111320;
+    const seg = (lon0: number, ele0: number) => Array.from({ length: 1000 }, (_, i) => `<trkpt lat="0" lon="${lon0 + i * dLon}"><ele>${ele0 + i * 0.01}</ele></trkpt>`);
+    const pts = [...seg(0, 500), ...seg(1000 * dLon + 2000 / 111320, 660)].join('');
+    const g = parseGpx(`<gpx><trk><trkseg>${pts}</trkseg></trk></gpx>`, 'gap.gpx');
+    expect(g.distKm).toBeCloseTo(2 * 999 * 0.003, 2);
+    // two 10 m rises, each short by up to the 2 m hysteresis; the 150 m reset is not counted
+    expect(g.climbM).toBeGreaterThan(15);
+    expect(g.climbM).toBeLessThan(21);
+    expect(gapMask(g.lat, g.lon).gaps).toBe(1);
+    // sparse routes (one point every 50 m) have no gaps
+    const sparse = Array.from({ length: 100 }, (_, i) => `<trkpt lat="0" lon="${i * 50 / 111320}"/>`).join('');
+    expect(gapMask(parseGpx(`<gpx><trk><trkseg>${sparse}</trkseg></trk></gpx>`, 's.gpx').lat, parseGpx(`<gpx><trk><trkseg>${sparse}</trkseg></trk></gpx>`, 's.gpx').lon).gaps).toBe(0);
   });
 });
 

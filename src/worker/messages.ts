@@ -53,7 +53,9 @@ export interface ParsedLeg {
   lon: Float64Array;
   waypoints: Waypoint[];
   spikesRemoved: number;
-  /** climbing from the file's elevations, m; null without elevations */
+  /** distance along the track, km, without recording gaps */
+  distKm: number;
+  /** climbing from the file's elevations, m, without recording gaps; null without elevations */
   climbM: number | null;
 }
 

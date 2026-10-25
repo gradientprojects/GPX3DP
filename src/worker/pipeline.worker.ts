@@ -91,7 +91,7 @@ self.onmessage = async (ev: MessageEvent<ToWorker>) => {
           return;
         }
         const s = removeSpikes(g.lat, g.lon, m.spikeKm);
-        legs.push({ file: f.name, name: g.name, lat: s.lat, lon: s.lon, waypoints: g.waypoints, spikesRemoved: s.removed, climbM: g.climbM });
+        legs.push({ file: f.name, name: g.name, lat: s.lat, lon: s.lon, waypoints: g.waypoints, spikesRemoved: s.removed, distKm: g.distKm, climbM: g.climbM });
       });
       post({ type: 'parsed', id: m.id, legs, errors }, legs.flatMap((l) => [l.lat.buffer, l.lon.buffer]));
     } else if (m.type === 'build') {
