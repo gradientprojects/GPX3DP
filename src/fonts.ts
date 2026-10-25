@@ -1,13 +1,20 @@
 import atkinson from '@fontsource/atkinson-hyperlegible/files/atkinson-hyperlegible-latin-700-normal.woff?url';
 import barlow from '@fontsource/barlow-condensed/files/barlow-condensed-latin-700-normal.woff?url';
 import inter from '@fontsource/inter/files/inter-latin-700-normal.woff?url';
+import inter600 from '@fontsource/inter/files/inter-latin-600-normal.woff?url';
+import inter500 from '@fontsource/inter/files/inter-latin-500-normal.woff?url';
 import jetbrains from '@fontsource/jetbrains-mono/files/jetbrains-mono-latin-700-normal.woff?url';
 import nunito from '@fontsource/nunito/files/nunito-latin-800-normal.woff?url';
 import robotoSlab from '@fontsource/roboto-slab/files/roboto-slab-latin-700-normal.woff?url';
 
-/** Label fonts: bold weights only (thin strokes close up in a deboss). All OFL except Roboto Slab (Apache-2.0). */
+/**
+ * Label fonts: medium to bold weights (thin strokes close up in a deboss; Bold printed fat on Kiran's Bambu).
+ * All OFL except Roboto Slab (Apache-2.0). The id `inter` stays Bold so old share links keep their look.
+ */
 export const LABEL_FONTS = [
-  { id: 'inter', name: 'Inter Bold', url: inter, file: '@fontsource/inter/files/inter-latin-700-normal.woff', note: 'clean sans' },
+  { id: 'inter600', name: 'Inter Semibold', url: inter600, file: '@fontsource/inter/files/inter-latin-600-normal.woff', note: 'clean sans' },
+  { id: 'inter500', name: 'Inter Medium', url: inter500, file: '@fontsource/inter/files/inter-latin-500-normal.woff', note: 'lighter' },
+  { id: 'inter', name: 'Inter Bold', url: inter, file: '@fontsource/inter/files/inter-latin-700-normal.woff', note: 'heavier' },
   {
     id: 'atkinson',
     name: 'Atkinson Hyperlegible Bold',

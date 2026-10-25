@@ -9,7 +9,7 @@ import { validateMesh } from '../src/core/validate';
 import { roundToLayers } from '../src/settings';
 
 /**
- * Test coupons: three flat 2 mm tiles with the underside label at 4, 5.5 and 7 mm (Inter, Death Ride text)
+ * Test coupons: three flat 2 mm tiles with the underside label at 4, 5.5 and 7 mm (Inter Semibold, Death Ride text)
  * and three wavy river grooves on top at 0.6, 0.8 (default) and 1.2 mm wide,
  * 0.6 mm deep. Narrowest groove is the one nearest the label's first line edge (north).
  *   npx vitest run --config scripts/coupon.config.ts   (LAYER=0.2 for another layer height)
@@ -20,7 +20,7 @@ const RIVERS_MM = [0.6, 0.8, 1.2];
 const NOZZLE = 0.4, LAYER = +(process.env.LAYER ?? 0.16), CELL = 0.25, MARGIN = 3, GAP = 6;
 
 it('test coupons', () => {
-  const ff = readFileSync(new URL('../node_modules/@fontsource/inter/files/inter-latin-700-normal.woff', import.meta.url));
+  const ff = readFileSync(new URL('../node_modules/@fontsource/inter/files/inter-latin-600-normal.woff', import.meta.url));
   const font = parse(ff.buffer.slice(ff.byteOffset, ff.byteOffset + ff.byteLength));
   // depths in whole layers, as the app builds them
   const settings = roundToLayers({ ...DEFAULT_MODEL, baseMm: 2, waterSurface: 'off' as const, markersOn: false, routeOwnColor: false }, LAYER);

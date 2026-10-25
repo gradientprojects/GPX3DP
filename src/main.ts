@@ -476,7 +476,8 @@ const draggedSize = (scale: number) => Math.min(40, Math.max(2, Math.round(S.lab
 
 /**
  * Print check from the built text: the strokes are grooves in the first layers (squish closes ones under
- * about 2 nozzle widths) and the plastic between them must be at least a line wide.
+ * about 1.5 nozzle widths) and the plastic between them closes up under about 1.75 (Kiran's Bambu print of
+ * Inter Bold: the counters nearly filled in while the grooves were fine).
  */
 function refreshLabelPrint() {
   const el = $('#label-print');

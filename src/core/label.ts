@@ -22,14 +22,14 @@ export interface LabelSpec {
   align: LabelAlign;
   /**
    * Lines printed smaller (e.g. the exaggeration note): `scale` x sizeMm, but never smaller than the size
-   * at which the line prints cleanly with `nozzleMm` (grooves at least 2 nozzle widths, walls 1.5).
+   * at which the line prints cleanly with `nozzleMm` (grooves at least 1.5 nozzle widths, walls 1.75).
    */
   small?: { lines: number[]; scale: number; nozzleMm: number };
 }
 
 /** print-check limits for a clean deboss, in nozzle widths */
-export const GOOD_GROOVE_NOZZLES = 2;
-export const GOOD_WALL_NOZZLES = 1.5;
+export const GOOD_GROOVE_NOZZLES = 1.5;
+export const GOOD_WALL_NOZZLES = 1.75;
 
 /** Box (model mm, x0 y0 x1 y1) to the placement it is nearest to on each axis, seen from below. */
 export function snapPlacement(box: [number, number, number, number], widthMm: number, heightMm: number, snapMm = 3) {
