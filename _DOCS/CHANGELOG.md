@@ -2,6 +2,11 @@
 
 Append-only. Newest first. Never edit or remove old entries.
 
+## 2026-10-25 — Drop loaded files twice; Clear button
+
+- Kiran dropped 6 GPX files and got 12 legs. The drop handler was registered on both the drop zone and the page body, and a drop on the zone bubbled to the body. One body listener now.
+- The Rides card header has a Clear button (shown when files are loaded) that removes every file, the same path as removing the last one with ✕.
+
 ## 2026-10-25 — Palette, color label, lighter label font, map in print colors, gap-aware stats
 
 - **Ride stats skip recording gaps.** Comparing the SRMR legs with Strava: the app read 1,243 mi / 113,553 ft against Strava's 1,170 mi / 81,915 ft, while the two day rides matched within 3%. The multi-day files have the Garmin off and on again 30 to 80 times per leg; the app counted the straight line across each gap and the barometer reset after it. Stationary jitter was tested first and explained nothing. Now a step over max(100 m, 20 x median spacing) is a gap: no distance, no climb across it. SRMR: 1,184 mi / 81,094 ft. Death Ride unchanged.

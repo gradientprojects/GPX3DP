@@ -219,7 +219,7 @@ A free public static web app on GitHub Pages. It turns one or more GPX files int
 
 ### 9. UI
 - Left panel:
-  - files and leg order;
+  - files and leg order (drop anywhere on the page or pick; a Clear button removes every file);
   - **Colors** (card 2): Multi-color / Single color, then the palette: Terrain, Water, Lakes (same as water / own), Rivers (same as water / own), Route, Text (same as water / same as route / own). Settings: `colors` (hex per entry), `lakesColor`, `riversColor`, `textColor`; `resolveColors` in `settings.ts` turns them into one hex per feature, everything terrain-colored on a single-color printer. A swatch in a feature card shows the resolved color and edits the palette entry it comes from (`paletteKeyFor`), so the two always agree. Markers pick Route / Terrain / Water / Text (`markerColor`; the old `own` value loads as Route; old 4-key `colors` links load with defaults for the new keys).
   - printer (preset, slicer, nozzle, layer height);
   - crop edge length and units;
