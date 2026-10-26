@@ -20,8 +20,8 @@ export interface LabelSpec {
   offY: number;
   /** line alignment within the block; auto follows edgeX */
   align: LabelAlign;
-  /** lines printed at their own cap height (the exaggeration note) */
-  small?: { lines: number[]; sizeMm: number };
+  /** cap height per line, by index into `lines`; 0 or missing means `sizeMm` (the stats and exaggeration lines have their own) */
+  lineSizes?: number[];
 }
 
 /**
@@ -108,16 +108,15 @@ export interface LabelGeom {
   wallMm: number | null;
   /** cap height of each line before any shrink to fit, mm */
   lineMm: number[];
-  /**
-   * widths at sizeMm, unshrunk, for rating other sizes (`labelWidthsAt`): the full-size lines, and the small
-   * lines at their own size
-   */
+  /** widths unshrunk, for rating other sizes (`labelWidthsAt`) and for saying which line is the problem */
   scaling: {
     sizeMm: number;
     /** the whole label's widths as measured, at sizeMm (undoing any shrink) */
     built: Widths;
+    /** the lines at the main size */
     main: Widths;
-    small: (Widths & { sizeMm: number }) | null;
+    /** every kept line alone: its index in `spec.lines`, its cap height and its widths */
+    lines: (Widths & { k: number; sizeMm: number })[];
   };
 }
 
@@ -130,9 +129,8 @@ const LINE_SPACING = 1.6;
  * Positions are given as seen from below; the result is mirrored left to right so the text reads
  * correctly when the print is turned over. The block stays `marginMm` inside the edges (shrunk if needed).
  */
-export function layoutLabel(font: Font, spec: LabelSpec, widthMm: number, heightMm: number, marginMm = 3): LabelGeom | null {
+export function layoutLabel(font: Font, spec: LabelSpec, widthMm: number, heightMm: number, marginMm = 3, measureLines = true): LabelGeom | null {
   const dropped = new Set<string>();
-  const smallSet = new Set(spec.small?.lines ?? []);
   const kept = spec.lines
     .map((l, k) => ({
       k,
@@ -150,15 +148,10 @@ export function layoutLabel(font: Font, spec: LabelSpec, widthMm: number, height
   if (!kept.length || spec.sizeMm <= 0) return null;
   const lines = kept.map((l) => l.text);
   const capEm = (font.tables.os2?.sCapHeight || 0.7 * font.unitsPerEm) / font.unitsPerEm;
-  // small lines have their own size; their widths alone feed the drag-time prediction (`labelWidthsAt`)
-  const small = spec.small;
-  const lineMm = kept.map((l) => (small && smallSet.has(l.k) ? Math.max(0.5, small.sizeMm) : spec.sizeMm));
-  let smallFull: Widths | null = null;
-  kept.forEach((l, k) => {
-    if (!small || !smallSet.has(l.k)) return;
-    const w = lineWidths(font, l.text, lineMm[k]);
-    smallFull = smallFull ? minWidths(smallFull, w) : w;
-  });
+  // each line's cap height, and each line's widths alone (so the UI can name the line that prints too fine)
+  const lineMm = kept.map((l) => Math.max(0.5, spec.lineSizes?.[l.k] || spec.sizeMm));
+  // (not when this layout is itself a measurement of one line: that would never end)
+  const perLine = measureLines ? kept.map((l, i) => ({ k: l.k, sizeMm: lineMm[i], ...lineWidths(font, l.text, lineMm[i]) })) : [];
 
   // glyph outlines at size, in block coordinates: u right, v up, first baseline at v = 0
   const widths = lines.map((l, k) => lineAdvance(font, l, lineMm[k], capEm));
@@ -232,10 +225,10 @@ export function layoutLabel(font: Font, spec: LabelSpec, widthMm: number, height
   const stroke = thinnestPx(mask, NX, NY, 1, Infinity);
   const wall = thinnestPx(mask, NX, NY, 0, WALL_MAX_MM / PX);
   const strokeMm = (stroke ?? 0) * PX, wallMm = wall === null ? null : wall * PX;
-  const mainLines = kept.filter((l) => !smallSet.has(l.k)).map((l) => l.text);
+  const mainLines = kept.filter((_l, i) => lineMm[i] === spec.sizeMm).map((l) => l.text);
   let main = { strokeMm, wallMm };
   if (mainLines.length && (s < 1 || mainLines.length < lines.length)) {
-    const m = layoutLabel(font, { ...spec, lines: mainLines, small: undefined }, 1e4, 1e4, 0);
+    const m = layoutLabel(font, { ...spec, lines: mainLines, lineSizes: undefined }, 1e4, 1e4, 0, false);
     if (m) main = { strokeMm: m.strokeMm, wallMm: m.wallMm };
   }
   return {
@@ -247,7 +240,7 @@ export function layoutLabel(font: Font, spec: LabelSpec, widthMm: number, height
     strokeMm,
     wallMm,
     lineMm,
-    scaling: { sizeMm: spec.sizeMm, built: scaled({ strokeMm, wallMm }, 1 / s), main, small: small && smallFull ? { ...(smallFull as Widths), sizeMm: small.sizeMm } : null },
+    scaling: { sizeMm: spec.sizeMm, built: scaled({ strokeMm, wallMm }, 1 / s), main, lines: perLine },
   };
 }
 
@@ -256,37 +249,21 @@ interface Widths {
   wallMm: number | null;
 }
 
-/** thinnest of two: a zero stroke means none measured */
-function minWidths(a: Widths, b: Widths): Widths {
-  const walls = [a.wallMm, b.wallMm].filter((v): v is number => v !== null);
-  return { strokeMm: a.strokeMm && b.strokeMm ? Math.min(a.strokeMm, b.strokeMm) : a.strokeMm || b.strokeMm, wallMm: walls.length ? Math.min(...walls) : null };
-}
-
 /** thinnest stroke and wall (mm) of one line laid out alone at sizeMm, unshrunk */
 function lineWidths(font: Font, text: string, sizeMm: number): Widths {
-  const g = layoutLabel(font, { lines: [text], sizeMm, edgeX: 'center', offX: 0, edgeY: 'middle', offY: 0, align: 'left' }, 1e4, 1e4, 0);
+  const g = layoutLabel(font, { lines: [text], sizeMm, edgeX: 'center', offX: 0, edgeY: 'middle', offY: 0, align: 'left' }, 1e4, 1e4, 0, false);
   return { strokeMm: g?.strokeMm ?? 0, wallMm: g?.wallMm ?? null };
 }
 
 const scaled = (w: Widths, f: number): Widths => ({ strokeMm: w.strokeMm * f, wallMm: w.wallMm === null ? null : w.wallMm * f });
 
 /**
- * Thinnest stroke and wall of the label if its main size were `sizeMm` (before any shrink to fit), from the
- * widths measured at the built size: main lines scale with the size, small lines scale with it in the same
- * proportion (the drag keeps their ratio). Lets the UI rate a new size while dragging, without rebuilding.
+ * Thinnest stroke and wall of the label if its main size were `sizeMm` (before any shrink to fit): the 3D
+ * drag scales every line in the same proportion, so the built widths scale with it. Lets the UI rate a new
+ * size while dragging, without rebuilding.
  */
 export function labelWidthsAt(sc: LabelGeom['scaling'], sizeMm: number): Widths {
-  const raw = (z: number): Widths => {
-    const main = scaled(sc.main, z / sc.sizeMm);
-    return sc.small ? minWidths(main, scaled(sc.small, z / sc.sizeMm)) : main;
-  };
-  // the whole label's check is a percentile over all its area, not the thinnest line's: calibrate so the
-  // prediction at the built size is exactly what was measured there
-  const p = raw(sizeMm), b = raw(sc.sizeMm);
-  return {
-    strokeMm: b.strokeMm ? (p.strokeMm * sc.built.strokeMm) / b.strokeMm : p.strokeMm,
-    wallMm: p.wallMm === null || sc.built.wallMm === null || !b.wallMm ? p.wallMm : (p.wallMm * sc.built.wallMm) / b.wallMm,
-  };
+  return scaled(sc.built, sizeMm / sc.sizeMm);
 }
 
 /** wider gaps than this between strokes are open space, not walls */

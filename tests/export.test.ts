@@ -1,6 +1,6 @@
 import { strFromU8, unzipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
-import { filamentSlots, printSuffix, to3mf, toStl } from '../src/core/export';
+import { filamentSlots, printSuffix, SETTINGS_FILE_3MF, to3mf, toStl } from '../src/core/export';
 import { buildModel, DEFAULT_MODEL } from '../src/core/model';
 import { validateMesh } from '../src/core/validate';
 
@@ -54,6 +54,12 @@ describe('3MF', () => {
     expect(filamentSlots(parts, { route: '#D02020', markers: '#d02020' })).toEqual([1, 2, 2]);
     expect(filamentSlots(parts, { route: '#D02020' })).toEqual([1, 2, 3]);
     for (const o of objects) expect({ name: o.name, ...validateMesh(o.positions, o.indices) }).toMatchObject({ ok: true });
+  });
+  it('carries the settings as a package file when given', () => {
+    const files = unzipSync(to3mf(sample(), { title: 'T', description: '', colors: {}, settings: '{"source":"gpx3dp"}' }));
+    expect(strFromU8(files[SETTINGS_FILE_3MF])).toBe('{"source":"gpx3dp"}');
+    expect(strFromU8(files['[Content_Types].xml'])).toContain('Extension="json"');
+    expect(unzipSync(to3mf(sample(), { title: 'T', description: '', colors: {} }))[SETTINGS_FILE_3MF]).toBeUndefined();
   });
 });
 

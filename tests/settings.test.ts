@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_MODEL } from '../src/core/model';
-import { DEFAULTS, fromHash, paletteKeyFor, paletteModel, resolveColors, roundToLayers, suggestedSmoothMm, toHash, toLayers } from '../src/settings';
+import { DEFAULTS, fromHash, paletteKeyFor, paletteModel, resolveColors, roundToLayers, SETTINGS_FORMAT, settingsFromJson, settingsJson, suggestedSmoothMm, toHash, toLayers } from '../src/settings';
 
 describe('palette', () => {
   it('resolves lakes, rivers, text and markers through the palette', () => {
@@ -14,13 +14,27 @@ describe('palette', () => {
     expect(new Set(Object.values(resolveColors({ ...own, multiColor: false }))).size).toBe(1);
   });
   it('decides the model switches: terrain color means shaped into the terrain', () => {
-    const base = { ...DEFAULT_MODEL, riverStyle: 'groove' as const };
-    expect(paletteModel(base, { lakesColor: 'water', riversColor: 'own', textColor: 'route' })).toMatchObject({ waterOwnColor: true, riverStyle: 'color', labelStyle: 'color' });
-    expect(paletteModel(base, { lakesColor: 'terrain', riversColor: 'terrain', textColor: 'terrain' })).toMatchObject({ waterOwnColor: false, riverStyle: 'groove', labelStyle: 'deboss' });
-    expect(paletteModel({ ...base, riverStyle: 'off' }, { lakesColor: 'water', riversColor: 'water', textColor: 'water' }).riverStyle).toBe('off');
+    const base = { ...DEFAULT_MODEL, riverStyle: 'groove' as const, waterSurface: 'parallel' as const };
+    const on = { riversOn: true, waterSurfaceAuto: true };
+    expect(paletteModel(base, { ...on, lakesColor: 'water', riversColor: 'own', textColor: 'route' })).toMatchObject({ waterOwnColor: true, waterSurface: 'flat', riverStyle: 'color', labelStyle: 'color' });
+    expect(paletteModel(base, { ...on, lakesColor: 'terrain', riversColor: 'terrain', textColor: 'terrain' })).toMatchObject({ waterOwnColor: false, waterSurface: 'waterlines', riverStyle: 'groove', labelStyle: 'deboss' });
+    // rivers off, and a surface chosen by hand, win
+    expect(paletteModel(base, { lakesColor: 'water', riversColor: 'water', textColor: 'water', riversOn: false, waterSurfaceAuto: false })).toMatchObject({ riverStyle: 'off', waterSurface: 'parallel' });
     // links from before the palette owned the switches
-    const old = btoa(JSON.stringify({ waterOwnColor: true, riverStyle: 'groove', labelStyle: 'color' }));
-    expect(fromHash('#s=' + old.replace(/=+$/, ''))).toMatchObject({ lakesColor: 'water', riversColor: 'terrain', textColor: 'water' });
+    const old = btoa(JSON.stringify({ waterOwnColor: true, riverStyle: 'off', labelStyle: 'color', waterSurface: 'flat' }));
+    expect(fromHash('#s=' + old.replace(/=+$/, ''))).toMatchObject({ lakesColor: 'water', riversOn: false, textColor: 'water', waterSurfaceAuto: false });
+  });
+  it('round-trips every setting through the export JSON, and refuses other JSON', () => {
+    const s = { ...structuredClone(DEFAULTS), nozzleMm: 0.6, labelText: 'Hi', crop: { north: 2, south: 1, east: 4, west: 3 }, pins: [[1, 2]] as [number, number][] };
+    const text = settingsJson(s);
+    expect(JSON.parse(text)).toMatchObject({ source: 'gpx3dp', format: SETTINGS_FORMAT });
+    expect(text).not.toContain('trkpt');
+    expect(settingsFromJson(text)).toEqual(s);
+    expect(settingsFromJson('{"settings":{}}')).toBeNull();
+    expect(settingsFromJson('not json')).toBeNull();
+    // an old file keeps the value it was built with, not today's default
+    const old = JSON.stringify({ source: 'gpx3dp', format: 1, settings: { labelSizeMm: 6, waterOwnColor: false } });
+    expect(settingsFromJson(old)).toMatchObject({ labelSizeMm: 6, lakesColor: 'terrain' });
   });
   it('loads links from before the palette', () => {
     const old = btoa(JSON.stringify({ colors: { terrain: '#010101', route: '#020202', water: '#030303', markers: '#040404' }, markerColor: 'own' }));

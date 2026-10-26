@@ -7,15 +7,16 @@ import { fitToPlate, PRINTERS } from './core/printers';
 import { makeFrame, mmToLat, mmToLon, routeBounds, toMmX, toMmY, type Bounds, type PrintFrame } from './core/project';
 import { FLAT_RELIEF_MM } from './core/crop';
 import { suggestExaggeration } from './core/exaggeration';
-import { printSuffix } from './core/export';
+import { printSuffix, SETTINGS_FILE_3MF, SETTINGS_FILE_ZIP } from './core/export';
 import { GOOD_GROOVE_NOZZLES, GOOD_WALL_NOZZLES, ICON_CLIMB, ICON_DISTANCE, ICONS, labelWidthsAt, snapPlacement, type LabelSpec } from './core/label';
 import { simplifyLine } from './core/simplify';
 import { LABEL_FONTS, labelFont } from './fonts';
-import { DEFAULTS, fromHash, NON_GEOMETRY, paletteKeyFor, paletteModel, resolveColors, roundToLayers, suggestedSmoothMm, toHash, toLayers, type AppSettings, type ColorFeature, type PaletteKey } from './settings';
+import { DEFAULTS, fromHash, NON_GEOMETRY, paletteKeyFor, paletteModel, resolveColors, settingsFromJson, settingsJson, roundToLayers, suggestedSmoothMm, toHash, toLayers, type AppSettings, type ColorFeature, type PaletteKey } from './settings';
 import { darker, MapView, type MapPin } from './ui/map';
 import { Preview } from './ui/preview3d';
 import type { FromWorker, ParsedLeg, PartMesh, ToWorker } from './worker/messages';
 import PipelineWorker from './worker/pipeline.worker.ts?worker';
+import { strFromU8, unzipSync } from 'fflate';
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T;
 const $$ = <T extends HTMLElement = HTMLElement>(sel: string) => [...document.querySelectorAll(sel)] as T[];
@@ -105,34 +106,35 @@ function statsLines(): string {
   return parts.join('\n');
 }
 
-function labelLines(): string[] {
-  const lines = S.labelText.split('\n').map((l) => l.trim()).filter(Boolean);
-  if (S.labelStats) lines.push(...statsLines().split('\n'));
+type LineKind = 'title' | 'stats' | 'exag';
+const KIND_NAME: Record<LineKind, string> = { title: 'The text lines', stats: 'The ride stats', exag: 'The exaggeration line' };
+const kindSize = (kind: LineKind) => (kind === 'stats' ? S.labelStatsMm : kind === 'exag' ? S.labelExagMm : S.labelSizeMm);
+
+/** the label's lines in order, each with what it is (its size and its name in messages follow from that) */
+function labelLineKinds(): { text: string; kind: LineKind }[] {
+  const lines = S.labelText.split('\n').map((l) => l.trim()).filter(Boolean).map((text) => ({ text, kind: 'title' as LineKind }));
+  if (S.labelStats) lines.push(...statsLines().split('\n').filter(Boolean).map((text) => ({ text, kind: 'stats' as LineKind })));
   if (S.labelExag) {
     const x = effectiveModel().exaggeration;
-    lines.push(x === 1 ? '(true scale)' : `(Vertical exaggeration ${x}×)`);
+    lines.push({ text: x === 1 ? '(true scale)' : `(Vertical exaggeration ${x}×)`, kind: 'exag' });
   }
-  return lines.filter(Boolean);
+  return lines;
 }
+const labelLines = () => labelLineKinds().map((l) => l.text);
 
 function labelSpec(): LabelSpec | null {
-  const lines = labelLines();
+  const lines = labelLineKinds();
   if (!lines.length) return null;
-  const small = exagLineIndex(lines);
   return {
-    lines,
+    lines: lines.map((l) => l.text),
     sizeMm: S.labelSizeMm,
+    lineSizes: lines.map((l) => (l.kind === 'title' ? 0 : kindSize(l.kind))),
     edgeX: S.labelEdgeX,
     offX: S.labelOffX,
     edgeY: S.labelEdgeY,
     offY: S.labelOffY,
     align: S.labelAlign,
-    ...(small >= 0 && { small: { lines: [small], sizeMm: S.labelExagMm } }),
   };
-}
-/** index of the exaggeration line (always last) in `lines`, or -1 */
-function exagLineIndex(lines: string[]): number {
-  return S.labelExag && lines.length > 1 ? lines.length - 1 : -1;
 }
 
 function routeLinesMm(f: PrintFrame): Float64Array[] {
@@ -224,7 +226,7 @@ function refreshMap(fit = false) {
   if (fit && cb) mapView.fit(cb);
   // the print's colors and widths, so the map shows what is in the print and how thin the rivers will be
   const eff = effectiveModel(), rc = resolveColors(S), f = frame();
-  const lakesOn = S.waterSurface !== 'off', riversOn = S.riverStyle !== 'off';
+  const lakesOn = eff.waterSurface !== 'off', riversOn = S.riversOn;
   mapView.setPrintStyle({
     terrain: rc.terrain,
     lakes: lakesOn ? (eff.waterOwnColor ? rc.lakes : rc.terrain) : null,
@@ -301,9 +303,49 @@ function afterLegsChanged(refit: boolean) {
   scheduleBuild(true);
 }
 
+/** a crop restored from an export is kept for the next ride that is loaded */
+let keepCrop = false;
+
+/**
+ * A 3MF or STL zip the app exported carries its settings: put them back. The ride itself is never in the
+ * file, so the user drops the GPX files again afterwards.
+ */
+async function restoreSettings(f: File) {
+  const is3mf = /\.3mf$/i.test(f.name);
+  let files: Record<string, Uint8Array>;
+  try {
+    files = unzipSync(new Uint8Array(await f.arrayBuffer()));
+  } catch {
+    return toast(`${f.name} could not be read as a ${is3mf ? '3MF' : 'zip'}.`);
+  }
+  const text = files[is3mf ? SETTINGS_FILE_3MF : SETTINGS_FILE_ZIP];
+  const s = text ? settingsFromJson(strFromU8(text)) : null;
+  if (!s) {
+    // a slicer that re-saved the file rewrote the package and dropped our settings
+    const model = files['3D/3dmodel.model'] ? strFromU8(files['3D/3dmodel.model']) : '';
+    const app = /<metadata name="Application">([^<]*)<\/metadata>/.exec(model)?.[1];
+    return toast(
+      app && app !== 'GPX3DP'
+        ? `${f.name} was re-saved by ${app}, which drops the settings. Open the original download instead.`
+        : `${f.name} carries no GPX3DP settings.${/\.stl$/i.test(f.name) ? ' STL files never do; the 3MF or the STL zip does.' : ''}`,
+    );
+  }
+  S = s;
+  keepCrop = true;
+  writeInputs();
+  renderLegs();
+  changed(true);
+  toast(`Settings restored from ${f.name}. Drop the ride's GPX files to rebuild it.`);
+}
+
 async function loadFiles(files: File[]) {
+  const saved = files.filter((f) => /\.(3mf|zip)$/i.test(f.name));
+  for (const f of saved) await restoreSettings(f);
   const gpx = files.filter((f) => /\.gpx$/i.test(f.name) || f.type.includes('gpx'));
-  if (!gpx.length) return toast('Those were not GPX files.');
+  if (!gpx.length) {
+    if (!saved.length) toast(files.some((f) => /\.stl$/i.test(f.name)) ? 'STL files carry no settings; drop the 3MF or the STL zip.' : 'Those were not GPX files.');
+    return;
+  }
   const texts = await Promise.all(gpx.map(async (f) => ({ name: f.name, text: await f.text() })));
   const res = await call({ type: 'parse', id: ++jobId, files: texts, spikeKm: S.spikeKm });
   hideProgress();
@@ -315,7 +357,12 @@ async function loadFiles(files: File[]) {
   }
   order = orderLegs(legs.map((l) => ({ startLat: l.lat[0], startLon: l.lon[0], endLat: l.lat[l.lat.length - 1], endLon: l.lon[l.lon.length - 1] }))).order;
   if (!S.title) ($('[data-k="title"]') as HTMLInputElement).placeholder = legs[order[0]]?.name ?? 'Model name';
-  if (!fromHash(location.hash).crop) S.crop = null;
+  if (!keepCrop && !fromHash(location.hash).crop) S.crop = null;
+  keepCrop = false;
+  // a crop restored from a file made for another ride would sit somewhere else entirely
+  const rb = routeBounds(orderedLegs(), 0);
+  if (S.crop && rb && (S.crop.east < rb.west || S.crop.west > rb.east || S.crop.north < rb.south || S.crop.south > rb.north))
+    toast("The restored crop doesn't cover this ride. Reset the crop to fit it.");
   afterLegsChanged(true);
 }
 
@@ -378,7 +425,7 @@ function refreshReadouts() {
     S.routeStyle === 'raised' ? layers('Route', S.routeHeightMm) : '',
     S.markersOn ? layers('markers +', S.markerHeightMm).replace('+ ', '+') : '',
     S.multiColor && (S.routeStyle === 'flush' || eff0.waterOwnColor || eff0.riverStyle === 'color') ? layers('color layer', S.colorDepthMm) : '',
-    S.waterSurface === 'waterlines' || S.waterSurface === 'parallel' ? layers('water lines', S.waterLineDepthMm) : '',
+    eff0.waterSurface === 'waterlines' || eff0.waterSurface === 'parallel' ? layers('water lines', S.waterLineDepthMm) : '',
     eff0.riverStyle === 'groove' ? layers('river groove', S.riverDepthMm) : '',
     labelLines().length ? layers(eff0.labelStyle === 'color' ? 'text inlay' : 'label', S.labelDepthMm) : '',
   ]
@@ -420,10 +467,14 @@ function refreshReadouts() {
         : 'Flush needs the route in its own color, so it is raised for now.'
       : '';
   $('#route-height-row').hidden = eff.routeStyle === 'flush';
-  ($('.water-opts') as HTMLElement).hidden = S.waterSurface === 'off';
-  for (const el of $$('.lines-only')) el.hidden = S.waterSurface === 'off' || S.waterSurface === 'flat';
-  for (const el of $$('.parallel-only')) el.hidden = S.waterSurface !== 'parallel';
-  ($('.river-opts') as HTMLElement).hidden = S.riverStyle === 'off';
+  ($('.water-opts') as HTMLElement).hidden = eff.waterSurface === 'off';
+  for (const el of $$('.lines-only')) el.hidden = eff.waterSurface === 'off' || eff.waterSurface === 'flat';
+  for (const el of $$('.parallel-only')) el.hidden = eff.waterSurface !== 'parallel';
+  // Auto picks the surface from the palette; the select then shows the pick and is disabled
+  const surf = $('[data-k="waterSurface"]') as HTMLSelectElement;
+  surf.disabled = S.waterSurfaceAuto;
+  if (S.waterSurfaceAuto) surf.value = eff.waterSurface;
+  ($('.river-opts') as HTMLElement).hidden = !S.riversOn;
   for (const el of $$('.groove-only')) el.hidden = eff.riverStyle !== 'groove';
   // what the palette decided for each feature, said in its own card
   const inColor = (own: boolean, what: string, how: string) => (own ? `${what} print in the color set under Colors.` : `${what} ${how} (Colors: same as terrain).`);
@@ -432,7 +483,7 @@ function refreshReadouts() {
   $('#label-style-line').textContent = eff.labelStyle === 'color' ? 'The text is an inlay in the color set under Colors.' : 'The text is debossed into the bottom (Colors: same as terrain).';
   const riverNotes: string[] = [];
   // a groove narrower than about 2 nozzle widths fills in, like the label's letters
-  if (S.riverStyle !== 'off' && S.rivers && S.riverWidthMm < 2 * S.nozzleMm)
+  if (S.riversOn && S.rivers && S.riverWidthMm < 2 * S.nozzleMm)
     riverNotes.push(`Narrow rivers under ${2 * S.nozzleMm} mm (2 nozzle widths) may fill in or print as a blur.`);
   $('#river-note').textContent = riverNotes.join(' ');
   ($('.marker-opts') as HTMLElement).hidden = !S.markersOn;
@@ -443,11 +494,14 @@ function refreshReadouts() {
         : 'The route has no own color, so markers print in the terrain color.'
       : '';
 
-  const lines = labelLines();
-  const small = exagLineIndex(lines);
+  const kinds = labelLineKinds();
+  ($('[data-k="labelStatsMm"]') as HTMLInputElement).disabled = !S.labelStats;
+  ($('[data-k="labelExagMm"]') as HTMLInputElement).disabled = !S.labelExag;
   $('#label-preview').replaceChildren(
-    ...lines.map((l, k) => {
+    ...kinds.map(({ text: l, kind }) => {
       const d = document.createElement('div');
+      // each line at its size relative to the text
+      if (kind !== 'title') d.style.fontSize = `${(kindSize(kind) / S.labelSizeMm).toFixed(3)}em`;
       for (const ch of Array.from(l)) {
         const ic = ICONS[ch];
         if (!ic) {
@@ -463,7 +517,6 @@ function refreshReadouts() {
         svg.append(poly);
         d.append(svg);
       }
-      if (k === small) d.className = 'small-line';
       return d;
     }),
   );
@@ -555,14 +608,22 @@ function refreshLabelPrint() {
       ? [thinGroove && 'the first layer may partly fill the letters', thinWall && 'the plastic between strokes is barely a line wide'].filter(Boolean).join(', and ')
       : [g < n && 'the letters will close up', w !== null && w < n && 'the plastic between strokes is too thin to print'].filter(Boolean).join(', and ');
   el.classList.add(level);
-  // when only the exaggeration line is the problem, say so: its size is set on its own
-  const sm = builtLabel.scaling?.small, main = builtLabel.scaling?.main;
-  const onlySmall = level !== 'good' && sm && main?.strokeMm && printLevel(main.strokeMm, main.wallMm) === 'good';
+  // which kind of line is the problem: each has its own size box
+  const kinds = labelLineKinds();
+  const worst = new Map<LineKind, 'good' | 'tight' | 'bad'>();
+  for (const ln of builtLabel.scaling?.lines ?? []) {
+    const kind = kinds[ln.k]?.kind ?? 'title';
+    const lv = ln.strokeMm ? printLevel(ln.strokeMm, ln.wallMm) : 'good';
+    const cur = worst.get(kind);
+    if (!cur || lv === 'bad' || (lv === 'tight' && cur === 'good')) worst.set(kind, lv);
+  }
+  const bad = [...worst].filter(([, lv]) => lv !== 'good');
+  const partial = level !== 'good' && bad.length && bad.length < worst.size;
   el.textContent =
     level === 'good'
       ? `Good for a ${n} mm nozzle. ${widths}.`
-      : onlySmall
-        ? `The main text is good for a ${n} mm nozzle; the exaggeration line at ${S.labelExagMm} mm is ${level === 'tight' ? 'tight' : 'too fine'}: ${why}. Make it bigger, or turn it off.`
+      : partial
+        ? `${bad.map(([k, lv]) => `${KIND_NAME[k]} at ${kindSize(k)} mm ${lv === 'tight' ? 'print tight' : 'are too fine'}`).join('; ')} for a ${n} mm nozzle: ${why}. The rest prints cleanly; make that line bigger, or turn it off.`
         : `${level === 'tight' ? 'Tight' : 'Too fine'} for a ${n} mm nozzle: ${why}. ${widths}.${fix}`;
 }
 
@@ -822,7 +883,7 @@ async function runBuild() {
       edge: S.edge,
       edgeMm: S.edgeMm,
       cellMm: +S.cellMm,
-      rivers: S.rivers && S.riverStyle !== 'off',
+      rivers: S.rivers && S.riversOn,
       riverWidthMm: S.riverWidthMm,
       model: builtModel,
       routeLines,
@@ -901,6 +962,7 @@ async function download(format: '3mf' | 'stl-parts' | 'stl-merged') {
     // say when heights are stretched, so the file isn't mistaken for true scale
     description: ATTRIBUTION + (builtExag !== 1 ? ` Vertical exaggeration ${builtExag}×.` : ''),
     colors: resolveColors(S),
+    settings: settingsJson(S),
     suffix: printSuffix(builtPrint.nozzleMm, builtPrint.layerMm),
   });
   hideProgress();
@@ -931,6 +993,14 @@ function showTab(t: 'map' | '3d') {
   }
 }
 for (const b of $$('.tab')) b.onclick = () => showTab(b.dataset.tab as 'map' | '3d');
+// N snaps the 3D camera back to the standard view, unless you're typing somewhere
+window.addEventListener('keydown', (e) => {
+  const t = e.target as HTMLElement;
+  if (e.key.toLowerCase() !== 'n' || e.metaKey || e.ctrlKey || e.altKey || $('#three').hidden) return;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+  e.preventDefault();
+  preview.snap();
+});
 for (const b of $$<HTMLButtonElement>('.view-toggle button'))
   b.onclick = () => {
     for (const o of $$('.view-toggle button')) o.classList.toggle('active', o === b);
@@ -938,7 +1008,7 @@ for (const b of $$<HTMLButtonElement>('.view-toggle button'))
   };
 
 // ---------------------------------------------------------------- label placement
-function placeLabel(p: Partial<Pick<AppSettings, 'labelEdgeX' | 'labelOffX' | 'labelEdgeY' | 'labelOffY' | 'labelSizeMm' | 'labelExagMm'>>) {
+function placeLabel(p: Partial<Pick<AppSettings, 'labelEdgeX' | 'labelOffX' | 'labelEdgeY' | 'labelOffY' | 'labelSizeMm' | 'labelStatsMm' | 'labelExagMm'>>) {
   Object.assign(S, p);
   writeInputs();
   changed(true);
@@ -948,6 +1018,7 @@ $('#label-show').onclick = () => {
   if (!builtLabel?.box) return toast(labelLines().length ? 'Generate the model first, then drag the text there.' : 'Add some label text first.');
   showTab('3d');
   ($('[data-view="bottom"]') as HTMLButtonElement).click();
+  preview.selectLabel(true);
 };
 // dragged or scaled in the Underside view: snap each axis to center or its nearest edge
 // while scaling: widths scale with the letter size, so the last build's widths rate the new size
@@ -961,9 +1032,9 @@ preview.labelReadout = (scale) => {
 preview.onLabelEdit = (box, scale) => {
   const size = draggedSize(scale);
   const p = snapPlacement(box, preview.widthMm, preview.heightMm);
-  // the exaggeration line keeps its proportion to the main text
-  const exag = Math.max(1, Math.round((S.labelExagMm * size) / S.labelSizeMm * 2) / 2);
-  placeLabel({ labelEdgeX: p.edgeX, labelOffX: p.offX, labelEdgeY: p.edgeY, labelOffY: p.offY, labelSizeMm: size, labelExagMm: exag });
+  // the other lines keep their proportion to the text
+  const prop = (mm: number) => Math.max(1, Math.round(((mm * size) / S.labelSizeMm) * 2) / 2);
+  placeLabel({ labelEdgeX: p.edgeX, labelOffX: p.offX, labelEdgeY: p.edgeY, labelOffY: p.offY, labelSizeMm: size, labelStatsMm: prop(S.labelStatsMm), labelExagMm: prop(S.labelExagMm) });
 };
 
 function showProgress(stage: string, done?: number, total?: number) {

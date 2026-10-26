@@ -46,13 +46,18 @@ export interface AppSettings extends ModelSettings {
   lakesColor: 'terrain' | 'water' | 'own';
   riversColor: 'terrain' | 'water' | 'own';
   textColor: 'terrain' | 'water' | 'route' | 'own';
+  /** rivers in the print at all (groove or color follows `riversColor`) */
+  riversOn: boolean;
+  /** lake surface follows the palette: flat when lakes print in a color, waterlines when they are terrain */
+  waterSurfaceAuto: boolean;
   /** underside label: typed lines, plus optional stats and exaggeration lines */
   labelText: string;
   labelStats: boolean;
   labelExag: boolean;
   labelFont: string;
   labelSizeMm: number;
-  /** cap height of the exaggeration line, mm */
+  /** cap heights of the ride-stats lines and the exaggeration line, mm (the typed text uses labelSizeMm) */
+  labelStatsMm: number;
   labelExagMm: number;
   labelEdgeX: LabelEdgeX;
   labelOffX: number;
@@ -89,11 +94,14 @@ export const DEFAULTS: AppSettings = {
   lakesColor: 'water',
   riversColor: 'water',
   textColor: 'terrain',
+  riversOn: true,
+  waterSurfaceAuto: true,
   labelText: '',
   labelStats: false,
   labelExag: false,
   labelFont: 'inter600',
   labelSizeMm: 5.5,
+  labelStatsMm: 4.5,
   labelExagMm: 4,
   labelEdgeX: 'center',
   labelOffX: 0,
@@ -135,11 +143,17 @@ export const NON_GEOMETRY: (keyof AppSettings)[] = ['title', 'units', 'colors', 
  * The model switches the palette decides: a feature set to the terrain color is shaped into the terrain,
  * any other color makes it a part of its own. Rivers that are off stay off.
  */
-export function paletteModel<T extends ModelSettings>(m: T, s: Pick<AppSettings, 'lakesColor' | 'riversColor' | 'textColor'>): T {
+export function paletteModel<T extends ModelSettings>(
+  m: T,
+  s: Pick<AppSettings, 'lakesColor' | 'riversColor' | 'textColor' | 'riversOn' | 'waterSurfaceAuto'>,
+): T {
+  const lakesOwn = s.lakesColor !== 'terrain';
   return {
     ...m,
-    waterOwnColor: s.lakesColor !== 'terrain',
-    riverStyle: m.riverStyle === 'off' ? 'off' : s.riversColor === 'terrain' ? 'groove' : 'color',
+    waterOwnColor: lakesOwn,
+    // a textured surface makes terrain-colored water read as water; colored water is flat
+    waterSurface: s.waterSurfaceAuto ? (lakesOwn ? 'flat' : 'waterlines') : m.waterSurface,
+    riverStyle: !s.riversOn ? 'off' : s.riversColor === 'terrain' ? 'groove' : 'color',
     labelStyle: s.textColor === 'terrain' ? 'deboss' : 'color',
   };
 }
@@ -179,13 +193,40 @@ export function toHash(s: AppSettings): string {
 }
 
 export function fromHash(hash: string): AppSettings {
-  const s = structuredClone(DEFAULTS);
   const m = /(?:^#?|&)s=([\w-]+)/.exec(hash);
-  if (!m) return s;
+  if (!m) return structuredClone(DEFAULTS);
   try {
     const b = m[1].replace(/-/g, '+').replace(/_/g, '/');
     const json = new TextDecoder().decode(Uint8Array.from(atob(b), (c) => c.charCodeAt(0)));
-    const d = JSON.parse(json) as Partial<AppSettings>;
+    return fromObject(JSON.parse(json) as Partial<AppSettings>);
+  } catch {
+    return structuredClone(DEFAULTS); // a broken hash
+  }
+}
+
+/** format of the settings embedded in exports (`settingsJson`); bump when a reader must treat old files differently */
+export const SETTINGS_FORMAT = 1;
+
+/** Every setting, with a stamp, for `Metadata/gpx3dp.json` in the 3MF (never the ride: the GPX stays in the browser). */
+export function settingsJson(s: AppSettings): string {
+  return JSON.stringify({ source: 'gpx3dp', format: SETTINGS_FORMAT, saved: new Date().toISOString().slice(0, 10), settings: s }, null, 1);
+}
+
+/** Settings read back from an export, or null when the text isn't ours. Old files reopen as they were built. */
+export function settingsFromJson(text: string): AppSettings | null {
+  try {
+    const d = JSON.parse(text) as { source?: string; settings?: Partial<AppSettings> };
+    if (d.source !== 'gpx3dp' || !d.settings || typeof d.settings !== 'object') return null;
+    return fromObject(d.settings);
+  } catch {
+    return null;
+  }
+}
+
+/** Defaults overlaid with whatever `d` has of the right type; old keys are mapped onto today's. */
+function fromObject(d: Partial<AppSettings>): AppSettings {
+  const s = structuredClone(DEFAULTS);
+  {
     for (const k of Object.keys(d) as (keyof AppSettings)[])
       if (k in DEFAULTS && typeof d[k] === typeof DEFAULTS[k] || (k === 'crop' && d[k])) (s as unknown as Record<string, unknown>)[k] = d[k];
     // links from before the palette: fewer color keys, and markers had a color of their own
@@ -196,8 +237,9 @@ export function fromHash(hash: string): AppSettings {
     if (!('lakesColor' in d) && 'waterOwnColor' in d) s.lakesColor = d.waterOwnColor ? 'water' : 'terrain';
     if (!('riversColor' in d) && d.riverStyle && d.riverStyle !== 'off') s.riversColor = d.riverStyle === 'color' ? 'water' : 'terrain';
     if (!('textColor' in d) && d.labelStyle) s.textColor = d.labelStyle === 'color' ? 'water' : 'terrain';
-  } catch {
-    /* ignore a broken hash */
+    if (!('riversOn' in d) && d.riverStyle === 'off') s.riversOn = false;
+    // a link that set the surface by hand keeps it
+    if (!('waterSurfaceAuto' in d) && d.waterSurface) s.waterSurfaceAuto = false;
   }
   return s;
 }

@@ -22,8 +22,8 @@
         <section class="card">
           <h2>1 · Rides <button id="clear-rides" class="reset-section" type="button" title="Remove every file" hidden>Clear</button></h2>
           <label id="drop" class="drop">
-            <input id="file" type="file" accept=".gpx,application/gpx+xml" multiple hidden />
-            <b>Drop GPX files here</b> or click to choose. Several files are chained into one ride.
+            <input id="file" type="file" accept=".gpx,.3mf,.zip,application/gpx+xml" multiple hidden />
+            <b>Drop GPX files here</b> or click to choose. Several files are chained into one ride. A 3MF or STL zip made here brings its settings back.
           </label>
           <ol id="legs" class="legs"></ol>
           <div id="ride-stats" class="muted small"></div>
@@ -156,6 +156,7 @@
         <section class="card">
           <h2>7 · Water</h2>
           <h3 class="sub">Lakes and sea</h3>
+          <div class="row"><label><input type="checkbox" data-k="waterSurfaceAuto" /> Auto</label><span class="muted small">flat when lakes print in a color, waterlines when they are terrain</span></div>
           <label class="row">Surface
             <select data-k="waterSurface">
               <option value="off">Off (raw terrain)</option>
@@ -171,12 +172,7 @@
             <div class="row color-row"><span class="muted small" id="lake-color-line"></span><input type="color" data-feature="lakes" /></div>
           </div>
           <h3 class="sub">Rivers</h3>
-          <label class="row">Style
-            <select data-k="riverStyle">
-              <option value="off">Off</option>
-              <option value="groove">On (follows the terrain)</option>
-            </select>
-          </label>
+          <label class="row"><span><input type="checkbox" data-k="riversOn" /> Include rivers</span><span class="muted small">they follow the terrain downhill</span></label>
           <div class="river-opts">
             <div class="row color-row"><span class="muted small" id="river-color-line"></span><input type="color" data-feature="rivers" /></div>
             <div class="row groove-only">Groove depth <input type="number" data-k="riverDepthMm" min="0.2" max="1.5" step="0.1" /> mm</div>
@@ -228,14 +224,12 @@
           <p class="muted small">Text in the bottom of the print. Check it with Underside in the 3D preview.</p>
           <div class="row color-row"><span class="muted small" id="label-style-line"></span><input type="color" data-feature="text" /></div>
           <label class="row label-text">Text <textarea data-k="labelText" rows="2" placeholder="Ride name"></textarea></label>
-          <div class="row wrap">
-            <label><input type="checkbox" data-k="labelStats" /> Ride stats</label>
-            <label><input type="checkbox" data-k="labelExag" /> Vertical exaggeration</label>
-            <span class="exag-size">at <input type="number" data-k="labelExagMm" min="1" max="40" step="0.5" /> mm</span>
-          </div>
+          <div class="row line-row"><span>Text size</span><span class="line-size"><input type="number" data-k="labelSizeMm" min="2" max="40" step="0.5" /> mm</span></div>
+          <div class="row line-row"><label><input type="checkbox" data-k="labelStats" /> Ride stats</label><span class="line-size"><input type="number" data-k="labelStatsMm" min="1" max="40" step="0.5" /> mm</span></div>
+          <div class="row line-row"><label><input type="checkbox" data-k="labelExag" /> Vertical exaggeration</label><span class="line-size"><input type="number" data-k="labelExagMm" min="1" max="40" step="0.5" /> mm</span></div>
+          <p class="muted small">Sizes are letter heights. Dragging the box in 3D scales all three together.</p>
           <label class="row">Font <select data-k="labelFont" id="label-font"></select></label>
           <p class="small" id="label-preview"></p>
-          <label class="row">Size <input type="number" data-k="labelSizeMm" min="2" max="40" step="0.5" /> mm letter height</label>
           <p class="small" id="label-print"></p>
           <label class="row">Depth <input type="number" data-k="labelDepthMm" min="0.2" max="2" step="0.1" /> mm</label>
           <h3 class="sub">Position</h3>

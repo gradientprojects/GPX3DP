@@ -2,6 +2,20 @@
 
 Append-only. Newest first. Never edit or remove old entries.
 
+## 2026-10-25 — Second feedback batch: palette-driven surface, label sizes, selection, settings in exports
+
+Kiran's second list from using the live site; all seven done together.
+
+1. **Include rivers** checkbox replaces the river Style select (Off / On made no sense once the palette decides groove vs color). New `riversOn`; old links with `riverStyle: off` migrate.
+2. **Lake surface Auto** (`waterSurfaceAuto`, on by default): flat when lakes print in a color, waterlines when they are terrain-colored. The select shows the pick and is disabled; untick Auto to choose. Old links that set a surface by hand keep it.
+3. **N** in the 3D preview snaps the camera back to the standard view (`Preview.snap`).
+4. **Label card rows**: Text size, Ride stats, Vertical exaggeration each on their own row with their own size box; the box is greyed out while the line is off. The old "at N mm" span sat on the checkbox row and looked like it applied to both.
+5. **Separate sizes** for the text, the stats lines (`labelStatsMm`, 4.5 mm) and the exaggeration line (`labelExagMm`, 4 mm): `LabelSpec.lineSizes` replaces the single small-line size, the layout measures each line alone, and the print check names the kind of line that is tight ("The ride stats at 4.5 mm print tight …; the rest prints cleanly"). The 3D drag scales all three together.
+6. **Label box only while selected**: the dashed box and handles appear on a click on the text or on "Drag it in 3D", and go away on a click on the model or Escape. Unselected, an invisible hit area stays over the text so the first click both selects and drags. Kiran had the box over the Top view after orbiting the Underside camera.
+7. **Settings in exports**: `Metadata/gpx3dp.json` in the 3MF and `GPX3DP_settings.json` in the STL zip hold every setting (full values, not the share link's diff, so later default changes can't alter a reopened design), with a source tag, format number and date. Dropping either file on the app restores everything but the ride; a slicer-re-saved 3MF is recognised by its `Application` metadata and refused with an explanation; a plain STL too. The crop comes back as coordinates, with a note if it doesn't cover the ride that is loaded next. GPX is never embedded (Kiran: a 3MF gets shared, and the track would show where they ride). Pattern taken from GPGF-tool2bin's STEP embed, with its own tag.
+- Bug found on the way: measuring each line alone called the layout recursively without end; the inner layouts now skip the measurement.
+- 202 tests. Checked in the browser: Auto surface, rivers checkbox, per-line sizes and readout, selection with Escape, the N key, and the restore flow with a settings 3MF, a re-saved 3MF and a settings zip with a far-off crop. Bambu's CLI slices a 3MF that carries the settings file.
+
 ## 2026-10-25 — Kiran's live-site feedback: palette owns the switches, label icons, exaggeration size
 
 Kiran exported a print from the live site and sent feedback; all of it worked locally first, pushed together afterwards.

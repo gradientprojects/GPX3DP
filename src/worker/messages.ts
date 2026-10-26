@@ -35,6 +35,8 @@ export interface ExportRequest {
   /** file name ending, e.g. "_0p4N_0p16L" */
   suffix: string;
   colors: Partial<Record<PartName, string>>;
+  /** the app's settings as JSON, embedded in the 3MF and the STL zip */
+  settings: string;
 }
 
 export interface ParseRequest {

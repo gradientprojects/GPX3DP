@@ -31,6 +31,11 @@ export class Preview {
     this.svg.classList.add('label-overlay');
     el.append(this.svg);
     this.svg.addEventListener('pointerdown', (e) => this.dragStart(e));
+    // a click on the model (not on the box) puts the box away; Escape too
+    this.renderer.domElement.addEventListener('pointerdown', () => this.selectLabel(false));
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && this.labelSelected) this.selectLabel(false);
+    });
     this.svg.addEventListener('pointermove', (e) => this.dragMove(e));
     this.svg.addEventListener('pointerup', (e) => this.dragEnd(e));
     this.svg.addEventListener('pointercancel', () => {
@@ -63,6 +68,14 @@ export class Preview {
     this.render();
   }
 
+  /** the box and its handles show only while the text is selected (a click on it, or "Drag it in 3D") */
+  labelSelected = false;
+  selectLabel(on: boolean) {
+    if (this.labelSelected === on) return;
+    this.labelSelected = on;
+    this.render();
+  }
+
   /** model mm (x, y) to pixels in the pane */
   private toScreen(x: number, y: number): [number, number] {
     const v = new THREE.Vector3(x - this.widthMm / 2, y - this.heightMm / 2, 0).project(this.camera);
@@ -88,6 +101,7 @@ export class Preview {
     const p = this.toModel(e);
     if (!p) return;
     e.preventDefault();
+    this.labelSelected = true;
     this.svg.classList.add('dragging');
     this.svg.setPointerCapture(e.pointerId);
     this.drag = { mode: t.dataset.drag === 'move' ? 'move' : 'scale', p0: p, box0: [...this.box], corner: +(t.dataset.corner ?? 0), scale: 1 };
@@ -139,7 +153,10 @@ export class Preview {
     return [Math.min(ox, ex), Math.min(oy, ey), Math.max(ox, ex), Math.max(oy, ey)];
   }
 
-  /** draw the box (and center guides it would snap to) over the underside view */
+  /**
+   * Draw the box (and center guides it would snap to) over the underside view. Unselected, only an invisible
+   * hit area over the text remains, so a click on it selects and starts a drag in one go.
+   */
   private drawOverlay() {
     const b = this.view === 'bottom' ? this.shownBox() : null;
     this.svg.style.display = b ? '' : 'none';
@@ -147,6 +164,11 @@ export class Preview {
     const [x0, y0, x1, y1] = b, W = this.widthMm, H = this.heightMm;
     const pts = [this.toScreen(x0, y0), this.toScreen(x1, y0), this.toScreen(x1, y1), this.toScreen(x0, y1)];
     const poly = pts.map((p) => p.map((v) => v.toFixed(1)).join(',')).join(' ');
+    if (!this.labelSelected && !this.drag) {
+      this.svg.setAttribute('class', 'label-overlay');
+      this.svg.innerHTML = `<polygon class="hit" data-drag="move" points="${poly}"/>`;
+      return;
+    }
     const line = (a: [number, number], c: [number, number]) => `<line class="guide" x1="${a[0]}" y1="${a[1]}" x2="${c[0]}" y2="${c[1]}"/>`;
     let guides = '';
     if (this.drag && Math.abs((x0 + x1) / 2 - W / 2) < 3) guides += line(this.toScreen(W / 2, 0), this.toScreen(W / 2, H));
@@ -175,6 +197,12 @@ export class Preview {
 
   setView(v: 'top' | 'bottom') {
     this.view = v;
+    if (this.w) this.frame(this.w, this.h);
+    this.render();
+  }
+
+  /** back to the standard framing of the current view (the N key) */
+  snap() {
     if (this.w) this.frame(this.w, this.h);
     this.render();
   }

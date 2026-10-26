@@ -143,7 +143,7 @@ describe('print check', () => {
   describe('small line', () => {
     const exag = '(Vertical exaggeration 1.5×)';
     const small = (sizeMm: number, mainMm = 5) =>
-      layoutLabel(font, spec(['Death Ride 2025', exag], { sizeMm: mainMm, small: { lines: [1], sizeMm } }), 150, 80)!;
+      layoutLabel(font, spec(['Death Ride 2025', exag], { sizeMm: mainMm, lineSizes: [0, sizeMm] }), 150, 80)!;
 
     it('prints at its own size, smaller or bigger than the main text', () => {
       const g = small(3.5);
@@ -168,7 +168,7 @@ describe('print check', () => {
     // what the drag readout predicts must match what the rebuild then measures (the drag keeps the two sizes in proportion)
     for (const [from, to] of [[6, 3], [6, 4.5], [6, 9], [10, 5]])
       it(`predicted widths at ${to} mm (built at ${from} mm) match a layout at ${to} mm`, () => {
-        const sp = (sizeMm: number) => spec(['Death Ride 2025', '(Vertical exaggeration 1×)'], { sizeMm, small: { lines: [1], sizeMm: sizeMm * 0.65 } });
+        const sp = (sizeMm: number) => spec(['Death Ride 2025', '(Vertical exaggeration 1×)'], { sizeMm, lineSizes: [0, sizeMm * 0.65] });
         const built = layoutLabel(font, sp(from), 1e4, 1e4, 0)!;
         const real = layoutLabel(font, sp(to), 1e4, 1e4, 0)!;
         const p = labelWidthsAt(built.scaling, to);
@@ -178,7 +178,7 @@ describe('print check', () => {
       });
 
     it('follows the line it was given when empty lines are dropped', () => {
-      const g = layoutLabel(font, spec(['', 'Death Ride', '  ', exag], { small: { lines: [3], sizeMm: 3.3 } }), 150, 80)!;
+      const g = layoutLabel(font, spec(['', 'Death Ride', '  ', exag], { lineSizes: [0, 0, 0, 3.3] }), 150, 80)!;
       expect(g.lineMm).toEqual([5, 3.3]);
     });
   });
@@ -204,7 +204,7 @@ describe('print check', () => {
       const file = readFileSync(new URL(`../node_modules/${f.file}`, import.meta.url));
       const ff = parse(file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength));
       const lines = ['Death Ride 2025', '104 mi · 12,966 ft', 'Vertical exaggeration 1.5×'];
-      const g = layoutLabel(ff, spec(lines, { sizeMm: 5, small: { lines: [2], sizeMm: 3.5 } }), 100, 60)!;
+      const g = layoutLabel(ff, spec(lines, { sizeMm: 5, lineSizes: [0, 0, 3.5] }), 100, 60)!;
       expect(g.lineMm[2]).toBeLessThan(5);
       expect(g.dropped).toEqual([]);
       expect(g.strokeMm).toBeGreaterThan(0.4);

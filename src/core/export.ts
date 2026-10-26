@@ -76,7 +76,13 @@ export interface ThreeMfOptions {
   layout?: 'components' | 'single';
   /** plate size in mm; the model is placed in its middle */
   plate?: [number, number];
+  /** the app's settings as JSON (`settingsJson`), stored as `Metadata/gpx3dp.json` so the file can be dropped back on the app */
+  settings?: string;
 }
+
+/** where the settings live inside a 3MF, and inside the STL zip */
+export const SETTINGS_FILE_3MF = 'Metadata/gpx3dp.json';
+export const SETTINGS_FILE_ZIP = 'GPX3DP_settings.json';
 
 /**
  * 3MF with one object whose components are the parts. Bambu Studio / Orca ignore 3MF object names
@@ -102,7 +108,8 @@ export function to3mf(parts: Part[], opt: ThreeMfOptions): Uint8Array {
     '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
       '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
       '<Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>' +
-      '<Default Extension="config" ContentType="text/xml"/></Types>',
+      '<Default Extension="config" ContentType="text/xml"/>' +
+      '<Default Extension="json" ContentType="application/json"/></Types>',
   );
   small(
     '_rels/.rels',
@@ -226,6 +233,7 @@ export function to3mf(parts: Part[], opt: ThreeMfOptions): Uint8Array {
         .join('') +
       '</object></config>',
   );
+  if (opt.settings) small(SETTINGS_FILE_3MF, opt.settings);
   zip.end();
   if (err) throw err;
   const len = chunks.reduce((s, c) => s + c.length, 0);

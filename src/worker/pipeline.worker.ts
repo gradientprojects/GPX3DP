@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 import { strToU8, zipSync } from 'fflate';
-import { to3mf, toStl } from '../core/export';
+import { SETTINGS_FILE_ZIP, to3mf, toStl } from '../core/export';
 import { parseGpx } from '../core/gpx';
 import { buildModel, type ModelInput, type Part } from '../core/model';
 import { removeSpikes } from '../core/spike';
@@ -110,12 +110,14 @@ self.onmessage = async (ev: MessageEvent<ToWorker>) => {
             colors: m.colors,
             layout: m.slicer === 'prusa' ? 'single' : 'components',
             plate: m.plate,
+            settings: m.settings,
           }),
         });
       } else if (m.format === 'stl-parts') {
         const z: Record<string, Uint8Array> = {};
         for (const p of lastParts) z[`${name}_${p.name}${m.suffix}.stl`] = toStl([p], `GPX3DP ${p.name}`);
         z['ATTRIBUTION.txt'] = strToU8(m.description);
+        z[SETTINGS_FILE_ZIP] = strToU8(m.settings);
         files.push({ name: `${name}_parts${m.suffix}.zip`, data: zipSync(z, { level: 4 }) });
       } else {
         // one clean solid: rebuild with every element folded into the terrain

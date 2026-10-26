@@ -135,9 +135,11 @@ details.advanced[open] > summary { margin-bottom: 6px; }
 .card h3.sub { font-size: 12px; font-weight: 600; margin: 10px 0 4px; }
 .card h3.sub:first-of-type { margin-top: 0; }
 #label-preview { white-space: pre-line; font-size: 15px; line-height: 1.5; margin: 4px 0; }
-#label-preview .small-line { font-size: 0.7em; }
 #label-preview .label-icon { height: 1.05em; width: auto; vertical-align: -0.2em; fill: currentColor; margin-right: 0.1em; }
-.exag-size input { width: 56px; }
+.line-row { justify-content: space-between; }
+.line-size { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.line-size input { width: 56px; }
+.line-size input:disabled { opacity: 0.45; }
 #label-preview:empty, #label-print:empty { display: none; }
 #label-print { margin: 2px 0 6px; padding-left: 8px; border-left: 3px solid var(--line); }
 #label-print.good { border-color: #3c9a5f; }
@@ -152,6 +154,7 @@ details.tips li { margin-bottom: 4px; }
 .label-overlay.dragging { pointer-events: auto; }
 .label-overlay polygon { fill: color-mix(in srgb, var(--accent) 12%, transparent); stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 5 3; pointer-events: auto; cursor: move; }
 .label-overlay rect { fill: var(--card); stroke: var(--accent); stroke-width: 1.5; pointer-events: auto; cursor: nwse-resize; }
+.label-overlay polygon.hit { fill: transparent; stroke: none; }
 .label-overlay .guide { stroke: var(--accent); stroke-width: 1; stroke-dasharray: 3 3; }
 /* while scaling: green prints cleanly, amber is tight, red is too fine (same levels as the print check) */
 .label-overlay.rate-good { --rate: #2e9d5b; }
