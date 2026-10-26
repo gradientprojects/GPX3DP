@@ -39,17 +39,17 @@
             <div class="row color-row"><span>Terrain</span><input type="color" data-color="terrain" /></div>
             <div class="row color-row multi-only"><span>Water</span><input type="color" data-color="water" /></div>
             <div class="row color-row multi-only sub-row"><span>Lakes</span>
-              <span><select data-k="lakesColor"><option value="water">Same as water</option><option value="own">Own color</option></select>
+              <span><select data-k="lakesColor"><option value="terrain">Same as terrain</option><option value="water">Same as water</option><option value="own">Own color</option></select>
               <input type="color" data-color="lakes" /></span></div>
             <div class="row color-row multi-only sub-row"><span>Rivers</span>
-              <span><select data-k="riversColor"><option value="water">Same as water</option><option value="own">Own color</option></select>
+              <span><select data-k="riversColor"><option value="terrain">Same as terrain</option><option value="water">Same as water</option><option value="own">Own color</option></select>
               <input type="color" data-color="rivers" /></span></div>
             <div class="row color-row multi-only"><span>Route</span><input type="color" data-color="route" /></div>
             <div class="row color-row multi-only"><span>Text</span>
-              <span><select data-k="textColor"><option value="water">Same as water</option><option value="route">Same as route</option><option value="own">Own color</option></select>
+              <span><select data-k="textColor"><option value="terrain">Same as terrain</option><option value="water">Same as water</option><option value="route">Same as route</option><option value="own">Own color</option></select>
               <input type="color" data-color="text" /></span></div>
           </div>
-          <p class="muted small" id="colors-note">Each card below says whether its feature prints in its color or as part of the terrain. The map and the 3D preview show these colors.</p>
+          <p class="muted small" id="colors-note">"Same as terrain" shapes a feature into the terrain: flattened lakes, grooved rivers, debossed text. Any other color prints it as its own part. The map and the 3D preview show these colors.</p>
         </section>
 
         <section class="card">
@@ -168,18 +168,17 @@
             <div class="row lines-only">Line spacing <input type="number" data-k="waterLineSpacingMm" min="0.6" max="5" step="0.1" /> mm</div>
             <div class="row parallel-only">Line angle <input type="number" data-k="waterLineAngleDeg" min="0" max="179" step="15" /> ° from east-west</div>
             <div class="row lines-only">Line width <input type="number" data-k="waterLineWidthMm" min="0.2" max="2" step="0.05" /> depth <input type="number" data-k="waterLineDepthMm" min="0.2" max="1.5" step="0.1" /> mm</div>
-            <div class="row color-row"><label><input type="checkbox" data-k="waterOwnColor" /> Lake color (own part)</label><input type="color" data-feature="lakes" /></div>
+            <div class="row color-row"><span class="muted small" id="lake-color-line"></span><input type="color" data-feature="lakes" /></div>
           </div>
           <h3 class="sub">Rivers</h3>
           <label class="row">Style
             <select data-k="riverStyle">
               <option value="off">Off</option>
-              <option value="groove">Groove (a channel, follows the terrain)</option>
-              <option value="color">River color (flush, follows the terrain)</option>
+              <option value="groove">On (follows the terrain)</option>
             </select>
           </label>
           <div class="river-opts">
-            <div class="row color-only color-row">River color <input type="color" data-feature="rivers" /></div>
+            <div class="row color-row"><span class="muted small" id="river-color-line"></span><input type="color" data-feature="rivers" /></div>
             <div class="row groove-only">Groove depth <input type="number" data-k="riverDepthMm" min="0.2" max="1.5" step="0.1" /> mm</div>
             <div class="row"><label><input type="checkbox" data-k="rivers" /> Include narrow rivers</label> <input type="number" data-k="riverWidthMm" min="0.3" max="3" step="0.1" /> mm wide</div>
             <p class="muted small">Wide rivers (mapped as areas) are always included. Narrow ones are lines in the map data, drawn at the width you set.</p>
@@ -227,52 +226,45 @@
         <section class="card">
           <h2>9 · Underside label</h2>
           <p class="muted small">Text in the bottom of the print. Check it with Underside in the 3D preview.</p>
-          <div class="row color-row">
-            <label>Style
-              <select data-k="labelStyle">
-                <option value="deboss">Debossed (cut into the bottom)</option>
-                <option value="color">Text color (flush inlay)</option>
-              </select>
-            </label>
-            <input type="color" data-feature="text" id="label-color-swatch" />
-          </div>
-          <p id="label-style-note" class="note"></p>
+          <div class="row color-row"><span class="muted small" id="label-style-line"></span><input type="color" data-feature="text" /></div>
           <label class="row label-text">Text <textarea data-k="labelText" rows="2" placeholder="Ride name"></textarea></label>
           <div class="row wrap">
             <label><input type="checkbox" data-k="labelStats" /> Ride stats</label>
             <label><input type="checkbox" data-k="labelExag" /> Vertical exaggeration</label>
+            <span class="exag-size">at <input type="number" data-k="labelExagMm" min="1" max="40" step="0.5" /> mm</span>
           </div>
           <label class="row">Font <select data-k="labelFont" id="label-font"></select></label>
           <p class="small" id="label-preview"></p>
           <label class="row">Size <input type="number" data-k="labelSizeMm" min="2" max="40" step="0.5" /> mm letter height</label>
           <p class="small" id="label-print"></p>
           <label class="row">Depth <input type="number" data-k="labelDepthMm" min="0.2" max="2" step="0.1" /> mm</label>
-          <p class="muted small">Position as read from below. Drag the box in the Underside view, or set an edge and a gap.</p>
+          <h3 class="sub">Position</h3>
+          <p class="muted small">Where the text block sits, as read from below: an edge and the gap from it, or the middle and a nudge. Or drag the box in the Underside view.</p>
           <div class="row">
-            <span>Across</span>
+            <span>Left to right</span>
             <select data-k="labelEdgeX">
-              <option value="left">From left</option>
-              <option value="center">Centered</option>
-              <option value="right">From right</option>
+              <option value="left">From the left edge</option>
+              <option value="center">In the middle</option>
+              <option value="right">From the right edge</option>
             </select>
             <input type="number" data-k="labelOffX" step="0.5" /> mm
           </div>
           <div class="row">
-            <span>Up</span>
+            <span>Bottom to top</span>
             <select data-k="labelEdgeY">
-              <option value="bottom">From bottom</option>
-              <option value="middle">Centered</option>
-              <option value="top">From top</option>
+              <option value="bottom">From the bottom edge</option>
+              <option value="middle">In the middle</option>
+              <option value="top">From the top edge</option>
             </select>
             <input type="number" data-k="labelOffY" step="0.5" /> mm
           </div>
           <div class="row">
-            <button type="button" class="ghost" id="label-center">Center</button>
+            <button type="button" class="ghost" id="label-center">Put it in the middle</button>
             <button type="button" class="ghost" id="label-show">Drag it in 3D</button>
           </div>
-          <label class="row">Align
+          <label class="row">Line alignment
             <select data-k="labelAlign">
-              <option value="auto">Auto (follows Across)</option>
+              <option value="auto">Auto (follows the position)</option>
               <option value="left">Left</option>
               <option value="center">Center</option>
               <option value="right">Right</option>

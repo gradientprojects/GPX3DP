@@ -8,10 +8,10 @@ import { makeFrame, mmToLat, mmToLon, routeBounds, toMmX, toMmY, type Bounds, ty
 import { FLAT_RELIEF_MM } from './core/crop';
 import { suggestExaggeration } from './core/exaggeration';
 import { printSuffix } from './core/export';
-import { GOOD_GROOVE_NOZZLES, GOOD_WALL_NOZZLES, labelWidthsAt, snapPlacement, type LabelSpec } from './core/label';
+import { GOOD_GROOVE_NOZZLES, GOOD_WALL_NOZZLES, ICON_CLIMB, ICON_DISTANCE, ICONS, labelWidthsAt, snapPlacement, type LabelSpec } from './core/label';
 import { simplifyLine } from './core/simplify';
 import { LABEL_FONTS, labelFont } from './fonts';
-import { DEFAULTS, fromHash, NON_GEOMETRY, paletteKeyFor, resolveColors, roundToLayers, suggestedSmoothMm, toHash, toLayers, type AppSettings, type ColorFeature, type PaletteKey } from './settings';
+import { DEFAULTS, fromHash, NON_GEOMETRY, paletteKeyFor, paletteModel, resolveColors, roundToLayers, suggestedSmoothMm, toHash, toLayers, type AppSettings, type ColorFeature, type PaletteKey } from './settings';
 import { darker, MapView, type MapPin } from './ui/map';
 import { Preview } from './ui/preview3d';
 import type { FromWorker, ParsedLeg, PartMesh, ToWorker } from './worker/messages';
@@ -78,7 +78,7 @@ function maxEdgeMm(): number | null {
  * feature heights are whole layers.
  */
 function effectiveModel(): ModelSettings {
-  const m: ModelSettings = roundToLayers({ ...S }, +S.layerHeightMm);
+  const m: ModelSettings = paletteModel(roundToLayers({ ...S }, +S.layerHeightMm), S);
   if (S.smoothAuto) m.smoothMm = suggestedSmoothMm(S);
   if (!S.multiColor) {
     m.routeOwnColor = m.waterOwnColor = false;
@@ -90,27 +90,27 @@ function effectiveModel(): ModelSettings {
   return m;
 }
 
-/** Ride stats for the label: all files combined. Climbing only from files that have elevations. */
-function statsLine(): string {
+/** Ride stats for the label, one line each with its icon: all files combined. Climbing only from files that have elevations. */
+function statsLines(): string {
   const km = legKm.reduce((a, b) => a + b, 0);
   if (!legs.length) return '';
   const mi = S.units === 'mi';
   const dist = mi ? km / KM_PER_MI : km;
-  const parts = [`${dist.toLocaleString('en-US', { maximumFractionDigits: dist >= 100 ? 0 : 1 })} ${mi ? 'mi' : 'km'}`];
+  const parts = [`${ICON_DISTANCE} ${dist.toLocaleString('en-US', { maximumFractionDigits: dist >= 100 ? 0 : 1 })} ${mi ? 'mi' : 'km'}`];
   const climbs = legs.map((l) => l.climbM).filter((c): c is number => c !== null);
   if (climbs.length) {
     const m = climbs.reduce((a, b) => a + b, 0);
-    parts.push(`${Math.round(mi ? m / 0.3048 : m).toLocaleString('en-US')} ${mi ? 'ft' : 'm'} climbing`);
+    parts.push(`${ICON_CLIMB} ${Math.round(mi ? m / 0.3048 : m).toLocaleString('en-US')} ${mi ? 'ft' : 'm'}`);
   }
-  return parts.join(' · ');
+  return parts.join('\n');
 }
 
 function labelLines(): string[] {
   const lines = S.labelText.split('\n').map((l) => l.trim()).filter(Boolean);
-  if (S.labelStats) lines.push(statsLine());
+  if (S.labelStats) lines.push(...statsLines().split('\n'));
   if (S.labelExag) {
     const x = effectiveModel().exaggeration;
-    lines.push(`Vertical exaggeration ${x}×${x === 1 ? ' (true scale)' : ''}`);
+    lines.push(x === 1 ? '(true scale)' : `(Vertical exaggeration ${x}×)`);
   }
   return lines.filter(Boolean);
 }
@@ -127,12 +127,9 @@ function labelSpec(): LabelSpec | null {
     edgeY: S.labelEdgeY,
     offY: S.labelOffY,
     align: S.labelAlign,
-    ...(small >= 0 && { small: { lines: [small], scale: EXAG_LINE_SCALE, nozzleMm: S.nozzleMm } }),
+    ...(small >= 0 && { small: { lines: [small], sizeMm: S.labelExagMm } }),
   };
 }
-
-/** the exaggeration note prints smaller than the main text, but never too small to print */
-const EXAG_LINE_SCALE = 0.65;
 /** index of the exaggeration line (always last) in `lines`, or -1 */
 function exagLineIndex(lines: string[]): number {
   return S.labelExag && lines.length > 1 ? lines.length - 1 : -1;
@@ -380,7 +377,7 @@ function refreshReadouts() {
   $('#layer-readout').textContent = [
     S.routeStyle === 'raised' ? layers('Route', S.routeHeightMm) : '',
     S.markersOn ? layers('markers +', S.markerHeightMm).replace('+ ', '+') : '',
-    S.multiColor && (S.routeStyle === 'flush' || S.waterOwnColor || S.riverStyle === 'color') ? layers('color layer', S.colorDepthMm) : '',
+    S.multiColor && (S.routeStyle === 'flush' || eff0.waterOwnColor || eff0.riverStyle === 'color') ? layers('color layer', S.colorDepthMm) : '',
     S.waterSurface === 'waterlines' || S.waterSurface === 'parallel' ? layers('water lines', S.waterLineDepthMm) : '',
     eff0.riverStyle === 'groove' ? layers('river groove', S.riverDepthMm) : '',
     labelLines().length ? layers(eff0.labelStyle === 'color' ? 'text inlay' : 'label', S.labelDepthMm) : '',
@@ -400,7 +397,7 @@ function refreshReadouts() {
   } else $('#size-readout').textContent = 'Load a GPX file to size the print.';
 
   const single = !S.multiColor;
-  for (const k of ['routeOwnColor', 'waterOwnColor']) ($(`[data-k="${k}"]`) as HTMLInputElement).disabled = single;
+  ($('[data-k="routeOwnColor"]') as HTMLInputElement).disabled = single;
   for (const o of $$<HTMLOptionElement>('[data-k="markerColor"] option:not([value="terrain"])')) o.disabled = single;
   // the palette: one color on a single-color printer; own-color swatches only when chosen
   for (const el of $$<HTMLElement>('.palette .multi-only')) el.toggleAttribute('data-single', single);
@@ -413,9 +410,6 @@ function refreshReadouts() {
   $('#colors-note').textContent = single
     ? 'Single color: everything prints in the terrain color. Routes, water, markers and the label are shaped into the terrain instead.'
     : 'Each card below says whether its feature prints in its color or as part of the terrain. The map and the 3D preview show these colors.';
-  ($('[data-k="labelStyle"] option[value="color"]') as HTMLOptionElement).disabled = single;
-  ($('#label-color-swatch') as HTMLElement).hidden = S.labelStyle !== 'color';
-  $('#label-style-note').textContent = S.labelStyle === 'color' && single ? 'A color label needs a multi-color printer, so the text is debossed.' : '';
   const flushOpt = $('[data-k="routeStyle"] option[value="flush"]') as HTMLOptionElement;
   flushOpt.disabled = single;
   const eff = effectiveModel();
@@ -431,10 +425,12 @@ function refreshReadouts() {
   for (const el of $$('.parallel-only')) el.hidden = S.waterSurface !== 'parallel';
   ($('.river-opts') as HTMLElement).hidden = S.riverStyle === 'off';
   for (const el of $$('.groove-only')) el.hidden = eff.riverStyle !== 'groove';
-  for (const el of $$('.color-only')) el.hidden = eff.riverStyle !== 'color';
-  ($('[data-k="riverStyle"] option[value="color"]') as HTMLOptionElement).disabled = single;
+  // what the palette decided for each feature, said in its own card
+  const inColor = (own: boolean, what: string, how: string) => (own ? `${what} print in the color set under Colors.` : `${what} ${how} (Colors: same as terrain).`);
+  $('#lake-color-line').textContent = inColor(eff.waterOwnColor, 'Lakes', 'are shaped into the terrain');
+  $('#river-color-line').textContent = inColor(eff.riverStyle === 'color', 'Rivers', 'are cut as a groove');
+  $('#label-style-line').textContent = eff.labelStyle === 'color' ? 'The text is an inlay in the color set under Colors.' : 'The text is debossed into the bottom (Colors: same as terrain).';
   const riverNotes: string[] = [];
-  if (S.riverStyle === 'color' && eff.riverStyle !== 'color') riverNotes.push('Water color needs a multi-color printer, so rivers are grooved.');
   // a groove narrower than about 2 nozzle widths fills in, like the label's letters
   if (S.riverStyle !== 'off' && S.rivers && S.riverWidthMm < 2 * S.nozzleMm)
     riverNotes.push(`Narrow rivers under ${2 * S.nozzleMm} mm (2 nozzle widths) may fill in or print as a blur.`);
@@ -452,7 +448,21 @@ function refreshReadouts() {
   $('#label-preview').replaceChildren(
     ...lines.map((l, k) => {
       const d = document.createElement('div');
-      d.textContent = l;
+      for (const ch of Array.from(l)) {
+        const ic = ICONS[ch];
+        if (!ic) {
+          d.append(ch);
+          continue;
+        }
+        // the icon in cap units: v up from the baseline, so flip and sit it on the text baseline
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('viewBox', '0 -1.3 2.1 1.6');
+        svg.setAttribute('class', 'label-icon');
+        const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+        poly.setAttribute('points', ic.points.map((v, i) => (i % 2 ? -v : v)).join(' '));
+        svg.append(poly);
+        d.append(svg);
+      }
       if (k === small) d.className = 'small-line';
       return d;
     }),
@@ -545,10 +555,15 @@ function refreshLabelPrint() {
       ? [thinGroove && 'the first layer may partly fill the letters', thinWall && 'the plastic between strokes is barely a line wide'].filter(Boolean).join(', and ')
       : [g < n && 'the letters will close up', w !== null && w < n && 'the plastic between strokes is too thin to print'].filter(Boolean).join(', and ');
   el.classList.add(level);
+  // when only the exaggeration line is the problem, say so: its size is set on its own
+  const sm = builtLabel.scaling?.small, main = builtLabel.scaling?.main;
+  const onlySmall = level !== 'good' && sm && main?.strokeMm && printLevel(main.strokeMm, main.wallMm) === 'good';
   el.textContent =
     level === 'good'
       ? `Good for a ${n} mm nozzle. ${widths}.`
-      : `${level === 'tight' ? 'Tight' : 'Too fine'} for a ${n} mm nozzle: ${why}. ${widths}.${fix}`;
+      : onlySmall
+        ? `The main text is good for a ${n} mm nozzle; the exaggeration line at ${S.labelExagMm} mm is ${level === 'tight' ? 'tight' : 'too fine'}: ${why}. Make it bigger, or turn it off.`
+        : `${level === 'tight' ? 'Tight' : 'Too fine'} for a ${n} mm nozzle: ${why}. ${widths}.${fix}`;
 }
 
 function refreshLabelNote() {
@@ -556,18 +571,6 @@ function refreshLabelNote() {
   const notes: string[] = [];
   if (labelLines().length) {
     if (builtLabel?.shrunk) notes.push("The text didn't fit, so it was scaled down to fit inside the edge.");
-    // compare against the size the label was built at (lineMm[0]), not the current setting: between a size
-    // change and the rebuild they differ, and the note would describe a label that doesn't exist
-    const n = builtLabel?.lineMm.length ?? 0;
-    const mainMm = n ? builtLabel!.lineMm[0] : 0;
-    const exagMm = n > 1 && exagLineIndex(labelLines()) >= 0 ? builtLabel!.lineMm[n - 1] : 0;
-    const wanted = Math.round(EXAG_LINE_SCALE * mainMm * 10) / 10;
-    if (exagMm && exagMm > wanted + 0.05)
-      notes.push(
-        exagMm >= mainMm
-          ? `The exaggeration line stays at the main size: smaller, its letters would be too fine for a ${S.nozzleMm} mm nozzle.`
-          : `The exaggeration line prints at ${exagMm} mm rather than ${wanted} mm: smaller, its letters would be too fine for a ${S.nozzleMm} mm nozzle.`,
-      );
     if (builtLabel?.dropped.length) notes.push(`Left out (not in the font): ${builtLabel.dropped.join(' ')}`);
     const asked = toLayers(S.labelDepthMm, +S.layerHeightMm) * +S.layerHeightMm;
     if (builtLabel && builtLabel.depthMm && builtLabel.depthMm < asked - 1e-6)
@@ -613,7 +616,7 @@ $('#panel').addEventListener('input', (e) => {
   if (k === 'marginPct') S.crop = null;
   if (k === 'units') renderLegs();
   // choices that move colors around: every swatch and the preview follow at once
-  if (k === 'lakesColor' || k === 'riversColor' || k === 'textColor' || k === 'markerColor' || k === 'labelStyle' || el.name === 'mc') colorsChanged();
+  if (k === 'lakesColor' || k === 'riversColor' || k === 'textColor' || k === 'markerColor' || el.name === 'mc') colorsChanged();
   if (k === 'printer' || k === 'plateX' || k === 'plateY' || k === 'edge') clampEdge();
   // units are only cosmetic, except in the label's stats line
   changed(!k || !NON_GEOMETRY.includes(k) || (k === 'units' && S.labelStats));
@@ -935,7 +938,7 @@ for (const b of $$<HTMLButtonElement>('.view-toggle button'))
   };
 
 // ---------------------------------------------------------------- label placement
-function placeLabel(p: Partial<Pick<AppSettings, 'labelEdgeX' | 'labelOffX' | 'labelEdgeY' | 'labelOffY' | 'labelSizeMm'>>) {
+function placeLabel(p: Partial<Pick<AppSettings, 'labelEdgeX' | 'labelOffX' | 'labelEdgeY' | 'labelOffY' | 'labelSizeMm' | 'labelExagMm'>>) {
   Object.assign(S, p);
   writeInputs();
   changed(true);
@@ -958,7 +961,9 @@ preview.labelReadout = (scale) => {
 preview.onLabelEdit = (box, scale) => {
   const size = draggedSize(scale);
   const p = snapPlacement(box, preview.widthMm, preview.heightMm);
-  placeLabel({ labelEdgeX: p.edgeX, labelOffX: p.offX, labelEdgeY: p.edgeY, labelOffY: p.offY, labelSizeMm: size });
+  // the exaggeration line keeps its proportion to the main text
+  const exag = Math.max(1, Math.round((S.labelExagMm * size) / S.labelSizeMm * 2) / 2);
+  placeLabel({ labelEdgeX: p.edgeX, labelOffX: p.offX, labelEdgeY: p.edgeY, labelOffY: p.offY, labelSizeMm: size, labelExagMm: exag });
 };
 
 function showProgress(stage: string, done?: number, total?: number) {

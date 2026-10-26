@@ -1,16 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULTS, fromHash, paletteKeyFor, resolveColors, roundToLayers, suggestedSmoothMm, toHash, toLayers } from '../src/settings';
+import { DEFAULT_MODEL } from '../src/core/model';
+import { DEFAULTS, fromHash, paletteKeyFor, paletteModel, resolveColors, roundToLayers, suggestedSmoothMm, toHash, toLayers } from '../src/settings';
 
 describe('palette', () => {
   it('resolves lakes, rivers, text and markers through the palette', () => {
     const s = { ...structuredClone(DEFAULTS), colors: { terrain: '#111111', water: '#222222', route: '#333333', lakes: '#444444', rivers: '#555555', text: '#666666' } };
-    expect(resolveColors(s)).toEqual({ terrain: '#111111', water: '#222222', route: '#333333', lakes: '#222222', rivers: '#222222', text: '#222222', markers: '#333333' });
+    expect(resolveColors(s)).toEqual({ terrain: '#111111', water: '#222222', route: '#333333', lakes: '#222222', rivers: '#222222', text: '#111111', markers: '#333333' });
     const own = { ...s, lakesColor: 'own' as const, riversColor: 'own' as const, textColor: 'route' as const, markerColor: 'text' as const };
     expect(resolveColors(own)).toMatchObject({ lakes: '#444444', rivers: '#555555', text: '#333333', markers: '#333333' });
     expect(paletteKeyFor(own, 'markers')).toBe('route');
     expect(paletteKeyFor(s, 'rivers')).toBe('water');
     // a single-color printer prints everything in the terrain color
     expect(new Set(Object.values(resolveColors({ ...own, multiColor: false }))).size).toBe(1);
+  });
+  it('decides the model switches: terrain color means shaped into the terrain', () => {
+    const base = { ...DEFAULT_MODEL, riverStyle: 'groove' as const };
+    expect(paletteModel(base, { lakesColor: 'water', riversColor: 'own', textColor: 'route' })).toMatchObject({ waterOwnColor: true, riverStyle: 'color', labelStyle: 'color' });
+    expect(paletteModel(base, { lakesColor: 'terrain', riversColor: 'terrain', textColor: 'terrain' })).toMatchObject({ waterOwnColor: false, riverStyle: 'groove', labelStyle: 'deboss' });
+    expect(paletteModel({ ...base, riverStyle: 'off' }, { lakesColor: 'water', riversColor: 'water', textColor: 'water' }).riverStyle).toBe('off');
+    // links from before the palette owned the switches
+    const old = btoa(JSON.stringify({ waterOwnColor: true, riverStyle: 'groove', labelStyle: 'color' }));
+    expect(fromHash('#s=' + old.replace(/=+$/, ''))).toMatchObject({ lakesColor: 'water', riversColor: 'terrain', textColor: 'water' });
   });
   it('loads links from before the palette', () => {
     const old = btoa(JSON.stringify({ colors: { terrain: '#010101', route: '#020202', water: '#030303', markers: '#040404' }, markerColor: 'own' }));

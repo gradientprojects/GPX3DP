@@ -2,6 +2,16 @@
 
 Append-only. Newest first. Never edit or remove old entries.
 
+## 2026-10-25 — Kiran's live-site feedback: palette owns the switches, label icons, exaggeration size
+
+Kiran exported a print from the live site and sent feedback; all of it worked locally first, pushed together afterwards.
+
+- **Palette owns on/off (1–4).** The map showed lakes in the terrain color while the palette said Water = blue, rivers drew grey next to a visible "River color" swatch, and picking a water color did nothing until a checkbox in the Water card was ticked. Cause: color lived in the palette, on/off in the feature cards. Now Lakes, Rivers and Text have a "Same as terrain" choice in the palette that means "shaped into the terrain" (flattened lakes, grooved rivers, debossed text); any color makes the part. `paletteModel` derives `waterOwnColor`, `riverStyle` and `labelStyle`; the Lake color checkbox, the river Groove / River color choice (now Off / On) and the label Style select are gone, each card says what the palette decided. Defaults: lakes and rivers same as water, text same as terrain. Old links migrate.
+- **Label placement labels (5).** "Across: Centered / Up: Centered / Align" became Position (left to right, bottom to top: an edge and the gap, or the middle and a nudge), "Put it in the middle", and Line alignment.
+- **Exaggeration line (6, 7).** Its own size (`labelExagMm`, default 4 mm) instead of 0.65 x the main text raised to a computed floor; the floor, `smallSizeMm` and the note Kiran found misleading are gone. The 3D drag scales both sizes in proportion. The print check says when only this line is tight. Text is now "(Vertical exaggeration 6×)" or "(true scale)".
+- **Stats lines with icons (8, 9).** Distance and climbing on their own lines, no "climbing" word, each led by an icon Kiran picked from mock-ups: a stout right arrow and twin peaks, both solid polygons at the cap height with strokes like Inter Semibold's stems. Icons are private-use characters the layout turns into polygons; they go through the same raster, print check and inlay as the letters, and show as inline SVG in the card's preview.
+- Tests: the small-line tests now cover explicit sizes; a new test lays out icon lines and builds a manifold pocket and plug from them; `paletteModel` and the old-switch migration are tested. 200 tests. Checked in the browser: palette-driven parts, two icon lines and the parenthesised exaggeration line in the Underside view as a water-colored inlay.
+
 ## 2026-10-25 — Exaggeration-line note was misleading
 
 - Kiran saw "The exaggeration line prints at 23.4 mm, the smallest that prints cleanly" at sizes where that was plainly untrue. The note compared the last build's line with the current size setting (they differ between a size change and the rebuild), and assumed the line had been raised to a clean size when it may simply have been held at the main size. It now compares against the size the label was built at and says either "prints at X mm rather than Y mm" or "stays at the main size", both ending "smaller, its letters would be too fine for a N mm nozzle".

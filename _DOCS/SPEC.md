@@ -99,7 +99,7 @@ A free public static web app on GitHub Pages. It turns one or more GPX files int
   - Waterlines: engraved lines following the shoreline at a fixed spacing, from a distance transform of the mask. This is the default texture.
   - Parallel lines: straight engraved lines at a set angle (degrees counter-clockwise from east-west, default 0).
   - Spacing, line width and depth are absolute mm.
-- Lakes print in the terrain material (flattened, with the chosen texture) or as their own `lakes` part in the lake color (the Lake color checkbox). Rivers in the River color style are a `rivers` part. The colors themselves come from the palette (section 9).
+- Whether lakes and rivers print as their own parts is decided in the palette (section 9): Lakes / Rivers "Same as terrain" shapes them into the terrain (flattened lakes with the chosen texture; rivers as a groove); any other color makes a `lakes` / `rivers` part. The Water card keeps the geometry only (surface texture, river on/off, groove depth, narrow river width) and says what the palette decided.
 
 ### 5. Route
 - Rasterized to a mask: `lineWidth = route_width_mm / cell_mm`, with round caps and joins.
@@ -152,13 +152,13 @@ A free public static web app on GitHub Pages. It turns one or more GPX files int
 - Validator: every undirected edge is used exactly twice in opposite directions, signed volume > 0, no degenerate triangles. It runs in the tests.
 
 ### 7b. Underside label
-- Text in the terrain part's flat bottom. Off until there is a line of text. Two styles (`labelStyle`):
+- Text in the terrain part's flat bottom. Off until there is a line of text. Two styles (`labelStyle`, decided by the palette's Text entry: "Same as terrain" debosses, any color inlays):
   - **Debossed**: the letters are a pocket cut into the bottom.
   - **Text color**: the same pocket, filled by a `text` part (a flush inlay). `pocketBottom` in `mesh.ts` writes the plug in the same pass: the letter ceilings as its top (+z), the letters minus their islands at z0 as its bottom, and the pocket walls reversed. Its vertices are its own copies of the ring points, pushed the same way, so every plug vertex sits exactly on a terrain vertex (a test checks this, and that the volumes add up to the plain slab). Needs a multi-color printer; single color debosses.
 - Lines:
   - the typed text (several lines; the placeholder is the ride name);
-  - optional **Ride stats**: total distance of all files and total climbing, in km/m or mi/ft;
-  - optional **Vertical exaggeration**: "Vertical exaggeration Nx", with "(true scale)" at 1x. It is the last line and prints smaller (`LabelSpec.small`):
+  - optional **Ride stats**: two lines, each led by an icon: a right arrow then the total distance of all files, twin peaks then the total climbing (no word "climbing"), in km/m or mi/ft. The icons (`ICONS` in `label.ts`, private-use characters `ICON_DISTANCE` / `ICON_CLIMB`) are filled polygons in cap-height units, drawn from the mock-ups Kiran chose on 2026-10-25, laid out like glyphs (`lineRings`, `lineAdvance`) and rated by the same print check; the card's preview shows them as inline SVG;
+  - optional **Vertical exaggeration**: "(Vertical exaggeration N×)", or "(true scale)" at 1×. It is the last line and has its own cap height, `labelExagMm` (default 4 mm; `LabelSpec.small = { lines, sizeMm }`). Dragging the box in 3D scales it in proportion to the main text. The print check says when only this line is tight or too fine. Before 2026-10-25 the line was 0.65 x the main size, raised to a floor the print check computed; that floor and its note are gone:
     - 0.65 x the main size, raised to the smallest size that still rates Good for the nozzle (measured on that line at full size, since widths scale with size; rounded up to 0.1 mm), and never bigger than the main text;
     - when it is the only line, it is the main text, at full size;
     - a note says when the line was held at the printable minimum. with a 0.6 mm nozzle Inter's near-touching letters leave walls that need the full size, so the line stays at the main size;
@@ -220,14 +220,14 @@ A free public static web app on GitHub Pages. It turns one or more GPX files int
 ### 9. UI
 - Left panel:
   - files and leg order (drop anywhere on the page or pick; a Clear button removes every file);
-  - **Colors** (card 2): Multi-color / Single color, then the palette: Terrain, Water, Lakes (same as water / own), Rivers (same as water / own), Route, Text (same as water / same as route / own). Settings: `colors` (hex per entry), `lakesColor`, `riversColor`, `textColor`; `resolveColors` in `settings.ts` turns them into one hex per feature, everything terrain-colored on a single-color printer. A swatch in a feature card shows the resolved color and edits the palette entry it comes from (`paletteKeyFor`), so the two always agree. Markers pick Route / Terrain / Water / Text (`markerColor`; the old `own` value loads as Route; old 4-key `colors` links load with defaults for the new keys).
+  - **Colors** (card 2): Multi-color / Single color, then the palette: Terrain, Water, Lakes (same as terrain / same as water / own), Rivers (same as terrain / same as water / own), Route, Text (same as terrain / same as water / same as route / own). "Same as terrain" is the off switch: `paletteModel` in `settings.ts` derives `waterOwnColor`, `riverStyle` (groove vs color; off stays off) and `labelStyle` from it, so the feature cards no longer have their own on/off and the map always matches the palette. Defaults: lakes and rivers same as water, text same as terrain (debossed). Old links with the old switches load through `fromHash`. Settings: `colors` (hex per entry), `lakesColor`, `riversColor`, `textColor`; `resolveColors` in `settings.ts` turns them into one hex per feature, everything terrain-colored on a single-color printer. A swatch in a feature card shows the resolved color and edits the palette entry it comes from (`paletteKeyFor`), so the two always agree. Markers pick Route / Terrain / Water / Text (`markerColor`; the old `own` value loads as Route; old 4-key `colors` links load with defaults for the new keys).
   - printer (preset, slicer, nozzle, layer height);
   - crop edge length and units;
   - base, Advanced (smoothing with Auto, exaggeration);
   - route (style, width, height, own part);
   - water (surface, texture, lake color on/off; river style, width);
   - markers (sources, shape per kind, size, height above route, palette color);
-  - underside label (text, stats, exaggeration, style debossed / text color, font, size with print check, depth, Across / Up, Center, align, tips).
+  - underside label (text, stats, exaggeration with its own size, font, size with print check, depth, Position: left-to-right and bottom-to-top edge + gap or middle + nudge, "Put it in the middle", "Drag it in 3D", line alignment, tips). Relabelled 2026-10-25: "Across / Up / Centered / Align" read as three kinds of centering.
 - 2D map with the route and an editable crop rectangle, and the 3D three.js preview with orbit controls, part colors and dimensions.
   - The map previews the print (`setPrintStyle` in `map.ts`, called from `refreshMap`): layers on the base style's own vector source, with the same filters as the build (`worker/water.ts`): lakes (polygons, not swimming pools or river areas), river areas, and narrow rivers (`waterway` lines of class river / canal, only when narrow rivers are on). The crop is tinted with the terrain color at 40%. Lakes that print as flattened terrain are drawn in the terrain color with a darker outline; grooved rivers in a darker terrain shade; own-color parts in their colors.
   - Route and river lines are drawn at their print width: mm → ground metres via the frame's `mmPerGroundM`, then a zoom-stop expression (metres per pixel halve per zoom), floored at 1 px. A 0.4 mm river reads as a hairline, as it will print. Before a ride is loaded the widths are fixed pixels.

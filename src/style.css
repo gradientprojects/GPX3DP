@@ -136,6 +136,8 @@ details.advanced[open] > summary { margin-bottom: 6px; }
 .card h3.sub:first-of-type { margin-top: 0; }
 #label-preview { white-space: pre-line; font-size: 15px; line-height: 1.5; margin: 4px 0; }
 #label-preview .small-line { font-size: 0.7em; }
+#label-preview .label-icon { height: 1.05em; width: auto; vertical-align: -0.2em; fill: currentColor; margin-right: 0.1em; }
+.exag-size input { width: 56px; }
 #label-preview:empty, #label-print:empty { display: none; }
 #label-print { margin: 2px 0 6px; padding-left: 8px; border-left: 3px solid var(--line); }
 #label-print.good { border-color: #3c9a5f; }

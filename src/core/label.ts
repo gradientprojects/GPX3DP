@@ -20,11 +20,60 @@ export interface LabelSpec {
   offY: number;
   /** line alignment within the block; auto follows edgeX */
   align: LabelAlign;
-  /**
-   * Lines printed smaller (e.g. the exaggeration note): `scale` x sizeMm, but never smaller than the size
-   * at which the line prints cleanly with `nozzleMm` (grooves at least 1.5 nozzle widths, walls 1.75).
-   */
-  small?: { lines: number[]; scale: number; nozzleMm: number };
+  /** lines printed at their own cap height (the exaggeration note) */
+  small?: { lines: number[]; sizeMm: number };
+}
+
+/**
+ * Icons the label can carry, as characters in the private-use area. Each is a filled polygon in cap-height
+ * units (u right, v up, baseline at v = 0, drawn from the SVG mock-ups Kiran chose: 1 unit = 32 px there), so
+ * it scales with the line like a glyph and goes through the same print check.
+ */
+export const ICON_DISTANCE = '\uE000', ICON_CLIMB = '\uE001';
+const iconPoly = (svg: number[]) => svg.map((v, i) => (i % 2 ? (48 - v) / 32 : v / 32));
+export const ICONS: Record<string, { points: number[]; advance: number }> = {
+  // a stout right arrow
+  [ICON_DISTANCE]: { points: iconPoly([0, 22, 40, 22, 40, 8, 66, 30, 40, 52, 40, 38, 0, 38]), advance: 66 / 32 + 0.3 },
+  // twin peaks
+  [ICON_CLIMB]: { points: iconPoly([0, 52, 22, 8, 34, 30, 44, 16, 66, 52]), advance: 66 / 32 + 0.3 },
+};
+
+/** runs of text and single icons, so a line can mix both */
+function runs(text: string): { text: string; icon?: false }[] | { text: string; icon: true }[] {
+  const out: { text: string; icon: boolean }[] = [];
+  for (const ch of Array.from(text)) {
+    if (ICONS[ch]) out.push({ text: ch, icon: true });
+    else if (out.length && !out[out.length - 1].icon) out[out.length - 1].text += ch;
+    else out.push({ text: ch, icon: false });
+  }
+  return out as { text: string; icon: true }[];
+}
+
+/** advance width of a line at cap height `sizeMm`, icons included */
+function lineAdvance(font: Font, text: string, sizeMm: number, capEm: number): number {
+  let w = 0;
+  for (const r of runs(text)) w += r.icon ? ICONS[r.text].advance * sizeMm : font.getAdvanceWidth(r.text, sizeMm / capEm, { kerning: true });
+  return w;
+}
+
+/** glyph and icon outlines of a line, as rings in block coordinates (u right, v up from `base`) */
+function lineRings(font: Font, text: string, sizeMm: number, capEm: number, off: number, base: number): number[][][] {
+  const out: number[][][] = [];
+  let x = off;
+  for (const r of runs(text)) {
+    if (r.icon) {
+      const ic = ICONS[r.text];
+      out.push([ic.points.map((v, i) => (i % 2 ? base + v * sizeMm : x + v * sizeMm))]);
+      x += ic.advance * sizeMm;
+      continue;
+    }
+    font.forEachGlyph(r.text, x, 0, sizeMm / capEm, { kerning: true }, (g, gx, gy, gs) => {
+      const rings = flatten(g.getPath(gx, gy, gs).commands, base);
+      if (rings.length) out.push(rings);
+    });
+    x += font.getAdvanceWidth(r.text, sizeMm / capEm, { kerning: true });
+  }
+  return out;
 }
 
 /** print-check limits for a clean deboss, in nozzle widths */
@@ -61,14 +110,14 @@ export interface LabelGeom {
   lineMm: number[];
   /**
    * widths at sizeMm, unshrunk, for rating other sizes (`labelWidthsAt`): the full-size lines, and the small
-   * lines laid out at full size with their size rule
+   * lines at their own size
    */
   scaling: {
     sizeMm: number;
     /** the whole label's widths as measured, at sizeMm (undoing any shrink) */
     built: Widths;
     main: Widths;
-    small: (Widths & { scale: number; nozzleMm: number }) | null;
+    small: (Widths & { sizeMm: number }) | null;
   };
 }
 
@@ -89,7 +138,7 @@ export function layoutLabel(font: Font, spec: LabelSpec, widthMm: number, height
       k,
       text: Array.from(l)
         .filter((ch) => {
-          const ok = /\s/.test(ch) || font.charToGlyphIndex(ch) > 0;
+          const ok = /\s/.test(ch) || !!ICONS[ch] || font.charToGlyphIndex(ch) > 0;
           if (!ok && !/[‍︎️]/.test(ch)) dropped.add(ch);
           return ok;
         })
@@ -101,18 +150,18 @@ export function layoutLabel(font: Font, spec: LabelSpec, widthMm: number, height
   if (!kept.length || spec.sizeMm <= 0) return null;
   const lines = kept.map((l) => l.text);
   const capEm = (font.tables.os2?.sCapHeight || 0.7 * font.unitsPerEm) / font.unitsPerEm;
-  // small lines: widths at full size (the thinnest of them), then each line's own size from its widths
+  // small lines have their own size; their widths alone feed the drag-time prediction (`labelWidthsAt`)
   const small = spec.small;
+  const lineMm = kept.map((l) => (small && smallSet.has(l.k) ? Math.max(0.5, small.sizeMm) : spec.sizeMm));
   let smallFull: Widths | null = null;
-  const lineMm = kept.map((l) => {
-    if (!small || !smallSet.has(l.k)) return spec.sizeMm;
-    const w = lineWidths(font, l.text, spec.sizeMm);
+  kept.forEach((l, k) => {
+    if (!small || !smallSet.has(l.k)) return;
+    const w = lineWidths(font, l.text, lineMm[k]);
     smallFull = smallFull ? minWidths(smallFull, w) : w;
-    return smallSizeMm(spec.sizeMm, w, small.scale, small.nozzleMm);
   });
 
   // glyph outlines at size, in block coordinates: u right, v up, first baseline at v = 0
-  const widths = lines.map((l, k) => font.getAdvanceWidth(l, lineMm[k] / capEm, { kerning: true }));
+  const widths = lines.map((l, k) => lineAdvance(font, l, lineMm[k], capEm));
   const blockW = Math.max(...widths);
   const glyphs: number[][][] = [];
   const align = spec.align === 'auto' ? spec.edgeX : spec.align;
@@ -121,10 +170,7 @@ export function layoutLabel(font: Font, spec: LabelSpec, widthMm: number, height
     // room below the line above (descenders and gap) plus this line's cap height: 1.6 x size when equal
     if (k) base -= (LINE_SPACING - 1) * lineMm[k - 1] + lineMm[k];
     const off = align === 'left' ? 0 : align === 'center' ? (blockW - widths[k]) / 2 : blockW - widths[k];
-    font.forEachGlyph(line, off, 0, lineMm[k] / capEm, { kerning: true }, (g, gx, gy, gs) => {
-      const rings = flatten(g.getPath(gx, gy, gs).commands, base);
-      if (rings.length) glyphs.push(rings);
-    });
+    glyphs.push(...lineRings(font, line, lineMm[k], capEm, off, base));
   });
   if (!glyphs.length) return null;
 
@@ -201,7 +247,7 @@ export function layoutLabel(font: Font, spec: LabelSpec, widthMm: number, height
     strokeMm,
     wallMm,
     lineMm,
-    scaling: { sizeMm: spec.sizeMm, built: scaled({ strokeMm, wallMm }, 1 / s), main, small: small && smallFull ? { ...(smallFull as Widths), scale: small.scale, nozzleMm: small.nozzleMm } : null },
+    scaling: { sizeMm: spec.sizeMm, built: scaled({ strokeMm, wallMm }, 1 / s), main, small: small && smallFull ? { ...(smallFull as Widths), sizeMm: small.sizeMm } : null },
   };
 }
 
@@ -222,31 +268,17 @@ function lineWidths(font: Font, text: string, sizeMm: number): Widths {
   return { strokeMm: g?.strokeMm ?? 0, wallMm: g?.wallMm ?? null };
 }
 
-/**
- * Size for a small line at main size `sizeMm`, given its widths `w` at that size: `scale` x sizeMm, raised
- * to where it still prints cleanly, never above sizeMm. Widths scale with the letter size.
- */
-function smallSizeMm(sizeMm: number, w: Widths, scale: number, nozzleMm: number): number {
-  if (!w.strokeMm) return sizeMm;
-  const n = nozzleMm;
-  const f = Math.max(scale, (GOOD_GROOVE_NOZZLES * n) / w.strokeMm, w.wallMm ? (GOOD_WALL_NOZZLES * n) / w.wallMm : 0);
-  // up to the next 0.1 mm, so the line is never just under the limit
-  return Math.min(sizeMm, Math.ceil(sizeMm * f * 10 - 1e-9) / 10);
-}
-
 const scaled = (w: Widths, f: number): Widths => ({ strokeMm: w.strokeMm * f, wallMm: w.wallMm === null ? null : w.wallMm * f });
 
 /**
- * Thinnest stroke and wall of the label if its size were `sizeMm` (before any shrink to fit), from the widths
- * measured at the built size: main lines scale with the size, small lines follow their own size rule.
- * Lets the UI rate a new size while dragging, without rebuilding.
+ * Thinnest stroke and wall of the label if its main size were `sizeMm` (before any shrink to fit), from the
+ * widths measured at the built size: main lines scale with the size, small lines scale with it in the same
+ * proportion (the drag keeps their ratio). Lets the UI rate a new size while dragging, without rebuilding.
  */
 export function labelWidthsAt(sc: LabelGeom['scaling'], sizeMm: number): Widths {
   const raw = (z: number): Widths => {
     const main = scaled(sc.main, z / sc.sizeMm);
-    if (!sc.small) return main;
-    const atZ = scaled(sc.small, z / sc.sizeMm);
-    return minWidths(main, scaled(atZ, smallSizeMm(z, atZ, sc.small.scale, sc.small.nozzleMm) / z));
+    return sc.small ? minWidths(main, scaled(sc.small, z / sc.sizeMm)) : main;
   };
   // the whole label's check is a percentile over all its area, not the thinnest line's: calibrate so the
   // prediction at the built size is exactly what was measured there

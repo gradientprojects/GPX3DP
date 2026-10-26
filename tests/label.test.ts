@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { parse } from 'opentype.js';
 import { describe, expect, it } from 'vitest';
-import { inRing, labelWidthsAt, layoutLabel, ringArea, snapPlacement, thinnestPx, traceRings } from '../src/core/label';
+import { ICON_CLIMB, ICON_DISTANCE, inRing, labelWidthsAt, layoutLabel, ringArea, snapPlacement, thinnestPx, traceRings } from '../src/core/label';
 import { LABEL_FONTS } from '../src/fonts';
 import { buildSlab } from '../src/core/mesh';
 import { buildModel, DEFAULT_MODEL, type ModelSettings } from '../src/core/model';
@@ -141,35 +141,21 @@ describe('print check', () => {
   });
 
   describe('small line', () => {
-    const exag = 'Vertical exaggeration 1.5×';
-    const small = (nozzleMm: number, sizeMm = 5) =>
-      layoutLabel(font, spec(['Death Ride 2025', exag], { sizeMm, small: { lines: [1], scale: 0.65, nozzleMm } }), 150, 80)!;
-    const alone = (sizeMm: number) => layoutLabel(font, spec([exag], { sizeMm }), 150, 80)!;
+    const exag = '(Vertical exaggeration 1.5×)';
+    const small = (sizeMm: number, mainMm = 5) =>
+      layoutLabel(font, spec(['Death Ride 2025', exag], { sizeMm: mainMm, small: { lines: [1], sizeMm } }), 150, 80)!;
 
-    it('prints at the scale when that is printable', () => {
-      const g = small(0.2);
-      expect(g.lineMm[0]).toBe(5);
-      expect(g.lineMm[1]).toBeGreaterThanOrEqual(3.25);
-      expect(g.lineMm[1]).toBeLessThanOrEqual(3.3);
+    it('prints at its own size, smaller or bigger than the main text', () => {
+      const g = small(3.5);
+      expect(g.lineMm).toEqual([5, 3.5]);
       // the block is shorter than two full-size lines
       const full = layoutLabel(font, spec(['Death Ride 2025', exag], { sizeMm: 5 }), 150, 80)!;
       expect(g.box[3] - g.box[1]).toBeLessThan(full.box[3] - full.box[1]);
+      expect(small(8).lineMm).toEqual([5, 8]);
     });
 
-    for (const n of [0.4, 0.6])
-      it(`never below the printable size for a ${n} mm nozzle`, () => {
-        const g = small(n, 10);
-        // 0.4: the line shrinks; 0.6: Inter's near-touching letters leave walls that need the full size
-        expect(g.lineMm[1]).toBeLessThanOrEqual(n === 0.6 ? 10 : 9);
-        if (g.lineMm[1] === 10) return; // held at the main size: nothing was computed to check
-        const a = alone(g.lineMm[1]);
-        // within a pixel of the "good" limits (rasterizing isn't exactly linear)
-        expect(a.strokeMm).toBeGreaterThanOrEqual(1.5 * n - 0.05);
-        if (a.wallMm !== null) expect(a.wallMm).toBeGreaterThanOrEqual(1.75 * n - 0.05);
-      });
-
     it('main widths leave out the small line and any shrink', () => {
-      const g = small(0.4, 10);
+      const g = small(2, 10);
       const one = layoutLabel(font, spec(['Death Ride 2025'], { sizeMm: 10 }), 1e4, 1e4, 0)!;
       expect(g.scaling.main.strokeMm).toBeCloseTo(one.strokeMm, 5);
       expect(g.strokeMm).toBeLessThan(g.scaling.main.strokeMm);
@@ -179,26 +165,37 @@ describe('print check', () => {
       expect(tiny.scaling.main.strokeMm).toBeCloseTo(one.strokeMm, 5);
     });
 
-    // what the drag readout predicts must match what the rebuild then measures
+    // what the drag readout predicts must match what the rebuild then measures (the drag keeps the two sizes in proportion)
     for (const [from, to] of [[6, 3], [6, 4.5], [6, 9], [10, 5]])
       it(`predicted widths at ${to} mm (built at ${from} mm) match a layout at ${to} mm`, () => {
-        const sp = (sizeMm: number) => spec(['Death Ride 2025', 'Vertical exaggeration 1× (true scale)'], { sizeMm, small: { lines: [1], scale: 0.65, nozzleMm: 0.4 } });
+        const sp = (sizeMm: number) => spec(['Death Ride 2025', '(Vertical exaggeration 1×)'], { sizeMm, small: { lines: [1], sizeMm: sizeMm * 0.65 } });
         const built = layoutLabel(font, sp(from), 1e4, 1e4, 0)!;
         const real = layoutLabel(font, sp(to), 1e4, 1e4, 0)!;
         const p = labelWidthsAt(built.scaling, to);
-        // rasterizing at 0.05 mm isn't exactly linear, and the small line sits at its wall-driven floor:
-        // within four pixels, and the error is pessimistic (the rebuild then rates it better, never worse)
-        expect(Math.abs(p.strokeMm - real.strokeMm)).toBeLessThan(0.2);
-        expect(Math.abs((p.wallMm ?? 0) - (real.wallMm ?? 0))).toBeLessThan(0.2);
+        // rasterizing at 0.05 mm isn't exactly linear: within three pixels
+        expect(Math.abs(p.strokeMm - real.strokeMm)).toBeLessThan(0.15);
+        expect(Math.abs((p.wallMm ?? 0) - (real.wallMm ?? 0))).toBeLessThan(0.15);
       });
 
-    it('stays at the main size when even that is too fine', () => {
-      expect(small(1, 4).lineMm[1]).toBe(4);
-    });
-
     it('follows the line it was given when empty lines are dropped', () => {
-      const g = layoutLabel(font, spec(['', 'Death Ride', '  ', exag], { small: { lines: [3], scale: 0.65, nozzleMm: 0.2 } }), 150, 80)!;
+      const g = layoutLabel(font, spec(['', 'Death Ride', '  ', exag], { small: { lines: [3], sizeMm: 3.3 } }), 150, 80)!;
       expect(g.lineMm).toEqual([5, 3.3]);
+    });
+  });
+
+  describe('icons', () => {
+    it('lay out like glyphs, are no thinner than the letters, and cut a manifold pocket', () => {
+      const lines = [`${ICON_DISTANCE} 168 km`, `${ICON_CLIMB} 3,952 m`];
+      const g = layoutLabel(font, spec(lines, { sizeMm: 5 }), 150, 80)!;
+      expect(g.dropped).toEqual([]);
+      const plain = layoutLabel(font, spec(['168 km', '3,952 m'], { sizeMm: 5 }), 150, 80)!;
+      // each icon is about two cap heights wide plus a gap
+      expect(g.box[2] - g.box[0]).toBeGreaterThan(plain.box[2] - plain.box[0] + 10);
+      expect(g.strokeMm).toBeGreaterThanOrEqual(plain.strokeMm - 0.05);
+      const n = (c: number) => new Uint8Array(200 * 120).fill(c);
+      const m = buildSlab(200, 120, 0.5, n(3), n(0), (_c, code) => (code === 0 ? 0 : 4), true, undefined, undefined, { ...g, depth: 0.6, plug: true });
+      expect(validateMesh(m.positions, m.indices)).toMatchObject({ ok: true });
+      expect(validateMesh(m.plug!.positions, m.plug!.indices)).toMatchObject({ ok: true });
     });
   });
 
@@ -207,7 +204,7 @@ describe('print check', () => {
       const file = readFileSync(new URL(`../node_modules/${f.file}`, import.meta.url));
       const ff = parse(file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength));
       const lines = ['Death Ride 2025', '104 mi · 12,966 ft', 'Vertical exaggeration 1.5×'];
-      const g = layoutLabel(ff, spec(lines, { sizeMm: 5, small: { lines: [2], scale: 0.65, nozzleMm: 0.2 } }), 100, 60)!;
+      const g = layoutLabel(ff, spec(lines, { sizeMm: 5, small: { lines: [2], sizeMm: 3.5 } }), 100, 60)!;
       expect(g.lineMm[2]).toBeLessThan(5);
       expect(g.dropped).toEqual([]);
       expect(g.strokeMm).toBeGreaterThan(0.4);

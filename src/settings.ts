@@ -38,16 +38,22 @@ export interface AppSettings extends ModelSettings {
   /** manual pins, [lat, lon] */
   pins: [number, number][];
   colors: Palette;
-  /** lakes and rivers follow the water color unless set to their own; text follows water or the route */
-  lakesColor: 'water' | 'own';
-  riversColor: 'water' | 'own';
-  textColor: 'water' | 'route' | 'own';
+  /**
+   * Where lakes, rivers and the label text get their color. 'terrain' means the feature is shaped into the
+   * terrain (flattened lakes, grooved rivers, debossed text) rather than printed as its own part; see
+   * `paletteModel`.
+   */
+  lakesColor: 'terrain' | 'water' | 'own';
+  riversColor: 'terrain' | 'water' | 'own';
+  textColor: 'terrain' | 'water' | 'route' | 'own';
   /** underside label: typed lines, plus optional stats and exaggeration lines */
   labelText: string;
   labelStats: boolean;
   labelExag: boolean;
   labelFont: string;
   labelSizeMm: number;
+  /** cap height of the exaggeration line, mm */
+  labelExagMm: number;
   labelEdgeX: LabelEdgeX;
   labelOffX: number;
   labelEdgeY: LabelEdgeY;
@@ -82,12 +88,13 @@ export const DEFAULTS: AppSettings = {
   colors: { terrain: '#d9d4c7', water: '#3a78c2', route: '#d23a2a', lakes: '#3a78c2', rivers: '#3a78c2', text: '#3a78c2' },
   lakesColor: 'water',
   riversColor: 'water',
-  textColor: 'water',
+  textColor: 'terrain',
   labelText: '',
   labelStats: false,
   labelExag: false,
   labelFont: 'inter600',
   labelSizeMm: 5.5,
+  labelExagMm: 4,
   labelEdgeX: 'center',
   labelOffX: 0,
   labelEdgeY: 'middle',
@@ -122,15 +129,28 @@ export function roundToLayers<T extends ModelSettings>(m: T, layer: number): T {
 }
 
 /** Settings that change only how the model is shared/exported, not the geometry. */
-export const NON_GEOMETRY: (keyof AppSettings)[] = ['title', 'units', 'colors', 'lakesColor', 'riversColor', 'textColor', 'slicer'];
+export const NON_GEOMETRY: (keyof AppSettings)[] = ['title', 'units', 'colors', 'slicer'];
+
+/**
+ * The model switches the palette decides: a feature set to the terrain color is shaped into the terrain,
+ * any other color makes it a part of its own. Rivers that are off stay off.
+ */
+export function paletteModel<T extends ModelSettings>(m: T, s: Pick<AppSettings, 'lakesColor' | 'riversColor' | 'textColor'>): T {
+  return {
+    ...m,
+    waterOwnColor: s.lakesColor !== 'terrain',
+    riverStyle: m.riverStyle === 'off' ? 'off' : s.riversColor === 'terrain' ? 'groove' : 'color',
+    labelStyle: s.textColor === 'terrain' ? 'deboss' : 'color',
+  };
+}
 
 /** The palette entry a feature's color comes from, so a swatch in that feature's card edits the palette. */
 export function paletteKeyFor(s: Pick<AppSettings, 'lakesColor' | 'riversColor' | 'textColor' | 'markerColor'>, f: ColorFeature): PaletteKey {
   switch (f) {
     case 'lakes':
-      return s.lakesColor === 'own' ? 'lakes' : 'water';
+      return s.lakesColor === 'own' ? 'lakes' : s.lakesColor;
     case 'rivers':
-      return s.riversColor === 'own' ? 'rivers' : 'water';
+      return s.riversColor === 'own' ? 'rivers' : s.riversColor;
     case 'text':
       return s.textColor === 'own' ? 'text' : s.textColor;
     case 'markers':
@@ -172,6 +192,10 @@ export function fromHash(hash: string): AppSettings {
     const given = d.colors as Partial<Palette> | undefined;
     s.colors = Object.fromEntries((Object.keys(DEFAULTS.colors) as PaletteKey[]).map((k) => [k, given?.[k] ?? DEFAULTS.colors[k]])) as Palette;
     if ((d.markerColor as string) === 'own') s.markerColor = 'route';
+    // links from before the palette owned the switches: the switch says which color the feature had
+    if (!('lakesColor' in d) && 'waterOwnColor' in d) s.lakesColor = d.waterOwnColor ? 'water' : 'terrain';
+    if (!('riversColor' in d) && d.riverStyle && d.riverStyle !== 'off') s.riversColor = d.riverStyle === 'color' ? 'water' : 'terrain';
+    if (!('textColor' in d) && d.labelStyle) s.textColor = d.labelStyle === 'color' ? 'water' : 'terrain';
   } catch {
     /* ignore a broken hash */
   }
