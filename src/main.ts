@@ -923,7 +923,7 @@ async function runBuild() {
         : 'Mesh check: closed and manifold ✓') +
       `<br>Elevation zoom ${res.zoom}, ${res.tiles} tiles · built in ${(res.ms / 1000).toFixed(1)} s`;
     const fr = frame();
-    builtScale = fr ? { scale: 1000 / fr.mmPerGroundM, relief1xMm: res.reliefMm / builtModel.exaggeration } : null;
+    builtScale = fr ? { scale: 1000 / fr.mmPerGroundM, relief1xMm: res.relief1xMm } : null;
     builtExag = builtModel.exaggeration;
     builtPrint = { nozzleMm: S.nozzleMm, layerMm: +S.layerHeightMm };
     refreshExagHint();

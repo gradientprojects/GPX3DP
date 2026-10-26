@@ -78,6 +78,8 @@ export type FromWorker =
       widthMm: number;
       heightMm: number;
       reliefMm: number;
+      /** raw terrain relief at true scale, mm */
+      relief1xMm: number;
       maxHeightMm: number;
       elevMin: number;
       elevMax: number;

@@ -2,6 +2,10 @@
 
 Append-only. Newest first. Never edit or remove old entries.
 
+## 2026-10-25 — Exaggeration suggestion no longer drifts
+
+- Kiran: the Death Ride suggested 1×, then 1.5× after dragging to 8×, then 1× again at 1.5×. The suggestion divided the built model's relief by its exaggeration, but smoothing grows with exaggeration and shaves the peaks, so the "relief at true scale" moved a little with every rebuild, and this crop sits right on the 10 mm boundary where the capped suggestion flips between 1× and 1.5×. The worker now reports the raw terrain's relief at true scale (`relief1xMm`), which doesn't depend on smoothing or exaggeration; the suggestion is the same at every setting.
+
 ## 2026-10-25 — Second feedback batch: palette-driven surface, label sizes, selection, settings in exports
 
 Kiran's second list from using the live site; all seven done together.

@@ -61,6 +61,7 @@ async function build(req: BuildRequest) {
       widthMm: r.input.W * r.input.cellMm,
       heightMm: r.input.H * r.input.cellMm,
       reliefMm: r.stats.reliefMm,
+      relief1xMm: r.relief1xMm,
       maxHeightMm: r.stats.maxHeightMm,
       elevMin: r.stats.elevMin,
       elevMax: r.stats.elevMax,

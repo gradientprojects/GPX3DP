@@ -15,6 +15,8 @@ export interface BuildResult {
   input: ModelInput;
   parts: Part[];
   stats: ModelStats;
+  /** relief of the raw terrain at true scale, mm: what the exaggeration suggestion is based on (smoothing and exaggeration don't move it) */
+  relief1xMm: number;
   zoom: number;
   tiles: number;
   /** a tighter crop with more relief, when this one is flat */
@@ -97,6 +99,9 @@ export async function buildFromRequest(req: BuildRequest, progress: Progress): P
     label: label ? { rings: label.rings, grid: label.grid } : undefined,
   };
   const { parts, stats } = buildModel(input, req.model);
+  let lo = Infinity, hi = -Infinity;
+  for (const e of elevCache.elevation) (lo = Math.min(lo, e)), (hi = Math.max(hi, e));
+  const relief1xMm = (hi - lo) * frame.mmPerGroundM;
   // flat at this size: look for a tighter crop over the mountains the ride crosses
   const crop =
     stats.reliefMm < FLAT_RELIEF_MM
@@ -106,6 +111,7 @@ export async function buildFromRequest(req: BuildRequest, progress: Progress): P
     input,
     parts,
     stats,
+    relief1xMm,
     zoom: elevCache.zoom,
     tiles: elevCache.tiles,
     crop,
