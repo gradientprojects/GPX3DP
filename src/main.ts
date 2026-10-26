@@ -556,9 +556,18 @@ function refreshLabelNote() {
   const notes: string[] = [];
   if (labelLines().length) {
     if (builtLabel?.shrunk) notes.push("The text didn't fit, so it was scaled down to fit inside the edge.");
-    const exagMm = builtLabel?.lineMm.length && exagLineIndex(labelLines()) >= 0 ? builtLabel.lineMm[builtLabel.lineMm.length - 1] : 0;
-    if (exagMm > EXAG_LINE_SCALE * S.labelSizeMm + 0.1)
-      notes.push(`The exaggeration line prints at ${exagMm} mm, the smallest that prints cleanly with a ${S.nozzleMm} mm nozzle.`);
+    // compare against the size the label was built at (lineMm[0]), not the current setting: between a size
+    // change and the rebuild they differ, and the note would describe a label that doesn't exist
+    const n = builtLabel?.lineMm.length ?? 0;
+    const mainMm = n ? builtLabel!.lineMm[0] : 0;
+    const exagMm = n > 1 && exagLineIndex(labelLines()) >= 0 ? builtLabel!.lineMm[n - 1] : 0;
+    const wanted = Math.round(EXAG_LINE_SCALE * mainMm * 10) / 10;
+    if (exagMm && exagMm > wanted + 0.05)
+      notes.push(
+        exagMm >= mainMm
+          ? `The exaggeration line stays at the main size: smaller, its letters would be too fine for a ${S.nozzleMm} mm nozzle.`
+          : `The exaggeration line prints at ${exagMm} mm rather than ${wanted} mm: smaller, its letters would be too fine for a ${S.nozzleMm} mm nozzle.`,
+      );
     if (builtLabel?.dropped.length) notes.push(`Left out (not in the font): ${builtLabel.dropped.join(' ')}`);
     const asked = toLayers(S.labelDepthMm, +S.layerHeightMm) * +S.layerHeightMm;
     if (builtLabel && builtLabel.depthMm && builtLabel.depthMm < asked - 1e-6)

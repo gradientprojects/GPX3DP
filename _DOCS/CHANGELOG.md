@@ -2,6 +2,10 @@
 
 Append-only. Newest first. Never edit or remove old entries.
 
+## 2026-10-25 — Exaggeration-line note was misleading
+
+- Kiran saw "The exaggeration line prints at 23.4 mm, the smallest that prints cleanly" at sizes where that was plainly untrue. The note compared the last build's line with the current size setting (they differ between a size change and the rebuild), and assumed the line had been raised to a clean size when it may simply have been held at the main size. It now compares against the size the label was built at and says either "prints at X mm rather than Y mm" or "stays at the main size", both ending "smaller, its letters would be too fine for a N mm nozzle".
+
 ## 2026-10-25 — Drop loaded files twice; Clear button
 
 - Kiran dropped 6 GPX files and got 12 legs. The drop handler was registered on both the drop zone and the page body, and a drop on the zone bubbled to the body. One body listener now.
