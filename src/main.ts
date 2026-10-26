@@ -247,6 +247,7 @@ function refreshMap(fit = false) {
 function renderLegs() {
   const ol = $('#legs');
   ol.innerHTML = '';
+  $('#clear-rides').hidden = !legs.length;
   const sm = seams(
     legs.map((l) => ({ startLat: l.lat[0], startLon: l.lon[0], endLat: l.lat[l.lat.length - 1], endLon: l.lon[l.lon.length - 1] })),
     order,
@@ -744,6 +745,14 @@ $('#clear-pins').onclick = () => {
   S.pins = [];
   changed(true);
 };
+// same path as removing the last file with its ✕
+$('#clear-rides').onclick = () => {
+  legs.length = 0;
+  legKm.length = 0;
+  order = [];
+  S.crop = null;
+  afterLegsChanged(true);
+};
 
 // ---------------------------------------------------------------- files
 const drop = $('#drop');
@@ -752,20 +761,20 @@ fileInput.onchange = () => {
   if (fileInput.files?.length) loadFiles([...fileInput.files]);
   fileInput.value = '';
 };
-for (const t of [drop, document.body]) {
-  t.addEventListener('dragover', (e) => {
-    if (!e.dataTransfer?.types.includes('Files')) return;
-    e.preventDefault();
-    drop.classList.add('over');
-  });
-  t.addEventListener('dragleave', () => drop.classList.remove('over'));
-  t.addEventListener('drop', (e) => {
-    if (!e.dataTransfer?.files.length) return;
-    e.preventDefault();
-    drop.classList.remove('over');
-    loadFiles([...e.dataTransfer.files]);
-  });
-}
+// Files can be dropped anywhere on the page. One listener on the body: a drop on the drop zone bubbles up to it
+// too, so listening on both loaded every file twice.
+document.body.addEventListener('dragover', (e) => {
+  if (!e.dataTransfer?.types.includes('Files')) return;
+  e.preventDefault();
+  drop.classList.add('over');
+});
+document.body.addEventListener('dragleave', () => drop.classList.remove('over'));
+document.body.addEventListener('drop', (e) => {
+  if (!e.dataTransfer?.files.length) return;
+  e.preventDefault();
+  drop.classList.remove('over');
+  loadFiles([...e.dataTransfer.files]);
+});
 
 // ---------------------------------------------------------------- build + export
 const preview = new Preview($('#three'));
